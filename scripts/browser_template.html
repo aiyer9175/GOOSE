@@ -1,0 +1,424 @@
+<title>GOOSE 2027 Projections</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #f4f6f2;
+  --surface: #ffffff;
+  --surface-2: #eceff0;
+  --ink: #18211d;
+  --muted: #5b6862;
+  --rule: #d5dcd7;
+  --accent: #1d6b4f;
+  --accent-soft: #dcebe3;
+  --band: #b9d8c8;
+  --warn: #a8661a;
+  --warn-soft: #f6e7d2;
+  --bad: #a83232;
+  --bad-soft: #f5dcdc;
+  --good: #1d6b4f;
+  --good-soft: #dcebe3;
+  --focus-ring: #1d6b4f;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1412; --surface: #161d1a; --surface-2: #1d2622; --ink: #e4ebe7; --muted: #98a69f;
+    --rule: #2a3530; --accent: #5cc496; --accent-soft: #1e3a2e; --band: #2f6a52;
+    --warn: #e0a457; --warn-soft: #3a2c19; --bad: #e57b7b; --bad-soft: #3d2222;
+    --good: #5cc496; --good-soft: #1e3a2e; --focus-ring: #5cc496;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1412; --surface: #161d1a; --surface-2: #1d2622; --ink: #e4ebe7; --muted: #98a69f;
+  --rule: #2a3530; --accent: #5cc496; --accent-soft: #1e3a2e; --band: #2f6a52;
+  --warn: #e0a457; --warn-soft: #3a2c19; --bad: #e57b7b; --bad-soft: #3d2222;
+  --good: #5cc496; --good-soft: #1e3a2e; --focus-ring: #5cc496;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--body); font-size: 14px; line-height: 1.45; padding: 20px clamp(16px, 3vw, 32px) 40px; }
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 18px; }
+header.top { display: grid; gap: 14px; }
+.brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brand h1 { font-family: var(--display); font-weight: 700; font-size: 34px; letter-spacing: 0.01em; margin: 0; line-height: 1; text-wrap: balance; }
+.brand .sub { color: var(--muted); font-size: 13px; }
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.search { flex: 1 1 260px; min-width: 0; position: relative; }
+.search input { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px 10px 36px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.search svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-weight: 500; padding: 9px 14px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.toggle { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); cursor: pointer; user-select: none; color: var(--ink); }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+select { font: inherit; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 960px) { .main { grid-template-columns: 1fr; } .detail { order: -1; } }
+
+.tablebox { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.tablemeta { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--rule); color: var(--muted); font-size: 12.5px; }
+.scroll { overflow-x: auto; max-height: 72vh; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 10px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { position: sticky; top: 0; background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--rule); z-index: 1; }
+thead th button { all: unset; cursor: pointer; display: inline-flex; gap: 4px; align-items: center; }
+thead th button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+thead th[aria-sort] { color: var(--ink); }
+tbody tr { border-bottom: 1px solid var(--rule); cursor: pointer; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr[aria-selected="true"] { background: var(--accent-soft); }
+td .pname { font-weight: 600; }
+td .pmeta { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.slash { letter-spacing: -0.01em; }
+
+.pill { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.pill.low { background: var(--good-soft); color: var(--good); }
+.pill.mid { background: var(--warn-soft); color: var(--warn); }
+.pill.high { background: var(--bad-soft); color: var(--bad); }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.chip.alert { border-color: var(--bad); color: var(--bad); }
+
+.detail { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 16px; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+.dname { font-family: var(--display); font-weight: 700; font-size: 32px; line-height: 1; margin: 0; }
+.dmeta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.headline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.big { border-top: 2px solid var(--ink); padding-top: 6px; }
+.big .v { font-family: var(--display); font-weight: 600; font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; }
+.big .l { color: var(--muted); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; margin-top: 3px; }
+.sect h3 { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.range { display: grid; gap: 4px; }
+.range + .range { margin-top: 12px; }
+.range .rl { display: flex; justify-content: space-between; font-size: 12.5px; }
+.range .rl b { font-weight: 600; }
+.bar { position: relative; height: 22px; background: var(--surface-2); border-radius: 4px; }
+.bar .band { position: absolute; top: 4px; bottom: 4px; background: var(--band); border-radius: 3px; }
+.bar .tick { position: absolute; top: 1px; bottom: 1px; width: 2px; background: var(--ink); border-radius: 1px; transform: translateX(-1px); }
+.bar .mean { position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); transform: translate(-50%, -50%); }
+.axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px 10px; font-variant-numeric: tabular-nums; }
+.grid div { display: grid; }
+.grid span { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.grid b { font-size: 15px; font-weight: 600; }
+.note { color: var(--muted); font-size: 12.5px; max-width: 65ch; }
+.empty { padding: 30px 14px; color: var(--muted); text-align: center; }
+footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-width: 90ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>GOOSE 2027</h1>
+      <span class="sub">Projections from end-of-2026 data &middot; rates, playing-time ranges and fragility</span>
+    </div>
+    <div class="controls">
+      <label class="search" for="q">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+        <input id="q" type="search" placeholder="Search players or teams" autocomplete="off" aria-label="Search players or teams">
+      </label>
+      <div class="seg" role="group" aria-label="Player type">
+        <button id="tab-h" type="button" aria-pressed="true">Hitters</button>
+        <button id="tab-p" type="button" aria-pressed="false">Starters</button>
+        <button id="tab-r" type="button" aria-pressed="false">Relievers</button>
+      </div>
+      <label class="toggle" for="focusOnly"><input id="focusOnly" type="checkbox"> <span id="focusLabel">Focus group only</span></label>
+      <select id="minVol" aria-label="Minimum projected playing time"></select>
+      <select id="faFilter" aria-label="Free agents">
+        <option value="all">All players</option>
+        <option value="fa">Free agents only</option>
+        <option value="nofa">Hide free agents</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="tablebox" aria-label="Projection table">
+      <div class="tablemeta"><span id="count"></span><span>Click a row for the full projection. Click a column to sort.</span></div>
+      <div class="scroll"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
+    </section>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+
+  <footer>
+    <div>Backtest 2022&ndash;2026 (projections made from prior-season data only): hitter wOBA error ties Steamer and beats ZiPS overall; trails Steamer by about 3% on hitters with 100&ndash;300 PA. Starters with 0&ndash;80 IP: K-BB% slightly better than Steamer, FIP slightly worse.</div>
+    <div>Playing-time ranges (P10&ndash;P90) captured 79&ndash;85% of actual outcomes in backtests. Fragility combines outcome spread and playing-time risk (hitters) or chance of falling short of 100 IP plus recent arm or shoulder IL time (pitchers).</div>
+    <div>Focus group: hitters with 100&ndash;300 PA and starters with 0&ndash;80 IP in 2026. Free agents (RosterResource tracker: certain or probable) get a neutral park and no org-specific context.</div>
+    <div>Playing time blends injury-adjusted and healthy workloads, leaning further toward the healthy workload for better, more established players (weights learned from backtests). Minor leaguers and players who missed 2026 are included and labeled. Swingmen appear in both the starter and reliever lists.</div>
+  </footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const $ = (id) => document.getElementById(id);
+const f3 = (v) => v == null ? "–" : (v < 1 ? v.toFixed(3).replace(/^0/, "") : v.toFixed(3));
+const f2 = (v) => v == null ? "–" : v.toFixed(2);
+const f0 = (v) => v == null ? "–" : Math.round(v).toString();
+const pct = (v, d = 1) => v == null ? "–" : (v * 100).toFixed(d) + "%";
+const fragClass = (v) => v == null ? "mid" : v < 0.34 ? "low" : v < 0.67 ? "mid" : "high";
+const fragWord = (v) => ({ low: "Sturdy", mid: "Moderate", high: "Fragile" })[fragClass(v)];
+
+const COUNT_H = ["hr", "r", "rbi", "sb", "cs", "bb", "k"];
+const COUNT_P = ["k", "bb", "hr", "w", "l", "qs", "gs", "tbf"];
+function view(r) {
+  return r;
+  const h = state.tab === "h";
+  const base = h ? r.pa : r.ip, alt = h ? r.pah : r.iph;
+  if (!base || !alt) return r;
+  const f = alt / base, o = { ...r };
+  (h ? COUNT_H : COUNT_P).forEach((k) => { if (o[k] != null) o[k] = o[k] * f; });
+  if (h) o.pa = alt; else o.ip = alt;
+  return o;
+}
+const VIEWS = {
+  h: {
+    rows: DATA.hitters, vol: "pa", volLabel: "PA", focusLabel: "Focus: 100–300 PA in 2026",
+    minOptions: [0, 100, 200, 300, 400, 500],
+    defaultSort: ["woba", -1],
+    cols: [
+      { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.pos ?? ""} · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "pa", label: "PA", cell: (r) => f0(r.pa) },
+      { key: "avg", label: "AVG/OBP/SLG", cell: (r) => `<span class="slash">${f3(r.avg)}/${f3(r.obp)}/${f3(r.slg)}</span>` },
+      { key: "woba", label: "wOBA", cell: (r) => f3(r.woba) },
+      { key: "hr", label: "HR", cell: (r) => f0(r.hr) },
+      { key: "r", label: "R", cell: (r) => f0(r.r) },
+      { key: "rbi", label: "RBI", cell: (r) => f0(r.rbi) },
+      { key: "sb", label: "SB", cell: (r) => f0(r.sb) },
+      { key: "frag", label: "Fragility", cell: (r) => `<span class="pill ${fragClass(r.frag)}">${f2(r.frag)}</span>` },
+    ],
+  },
+  r: {
+    rows: DATA.relievers, vol: "ip", volLabel: "IP", focusLabel: "Also starts (swingmen)",
+    minOptions: [0, 20, 40, 60],
+    defaultSort: ["sv", -1],
+    cols: [
+      { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.throws ?? ""}HP · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "ip", label: "IP", cell: (r) => f0(r.ip) },
+      { key: "sv", label: "SV", cell: (r) => f0(r.sv) },
+      { key: "hld", label: "HLD", cell: (r) => f0(r.hld) },
+      { key: "k", label: "K", cell: (r) => f0(r.k) },
+      { key: "era", label: "ERA", cell: (r) => f2(r.era) },
+      { key: "whip", label: "WHIP", cell: (r) => f2(r.whip) },
+      { key: "kpct", label: "K%", cell: (r) => pct(r.kpct) },
+      { key: "frag", label: "Fragility", cell: (r) => `<span class="pill ${fragClass(r.frag)}">${f2(r.frag)}</span>` },
+    ],
+  },
+  p: {
+    rows: DATA.pitchers, vol: "ip", volLabel: "IP", focusLabel: "Focus: 0–80 IP in 2026",
+    minOptions: [0, 40, 80, 120, 150],
+    defaultSort: ["fip", 1],
+    cols: [
+      { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.throws ?? ""}HP · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "ip", label: "IP", cell: (r) => f0(r.ip) },
+      { key: "gs", label: "GS", cell: (r) => f0(r.gs) },
+      { key: "era", label: "ERA", cell: (r) => f2(r.era) },
+      { key: "fip", label: "FIP", cell: (r) => f2(r.fip) },
+      { key: "whip", label: "WHIP", cell: (r) => f2(r.whip) },
+      { key: "k", label: "K", cell: (r) => f0(r.k) },
+      { key: "kpct", label: "K%", cell: (r) => pct(r.kpct) },
+      { key: "w", label: "W", cell: (r) => f0(r.w) },
+      { key: "qs", label: "QS", cell: (r) => f0(r.qs) },
+      { key: "frag", label: "Fragility", cell: (r) => `<span class="pill ${fragClass(r.frag)}">${f2(r.frag)}</span>` },
+    ],
+  },
+};
+
+const state = { tab: "h", q: "", focus: false, min: 0, fa: "all", sort: { h: VIEWS.h.defaultSort, p: VIEWS.p.defaultSort, r: VIEWS.r.defaultSort }, sel: { h: null, p: null, r: null } };
+try { const saved = JSON.parse(localStorage.getItem("goose-browser") || "{}"); if (saved.tab) state.tab = saved.tab; } catch (e) {}
+
+function filtered() {
+  const v = VIEWS[state.tab];
+  const q = state.q.trim().toLowerCase();
+  const [key, dir] = state.sort[state.tab];
+  return v.rows
+    .filter((r) => (!state.focus || (state.tab === "r" ? r.swing === 1 : r.focus === 1)) && (view(r)[v.vol] ?? 0) >= state.min)
+    .filter((r) => state.fa === "all" || (state.fa === "fa" ? r.fa === 1 : r.fa !== 1))
+    .filter((r) => !q || r.name.toLowerCase().includes(q) || (r.team || "").toLowerCase() === q)
+    .sort((a, b) => {
+      const x = view(a)[key], y = view(b)[key];
+      if (typeof x === "string") return dir * x.localeCompare(y);
+      return dir * ((x ?? -Infinity) - (y ?? -Infinity));
+    });
+}
+
+function renderControls() {
+  const v = VIEWS[state.tab];
+  ["h", "p", "r"].forEach((t) => $("tab-" + t).setAttribute("aria-pressed", state.tab === t));
+  $("focusLabel").textContent = v.focusLabel;
+  $("minVol").innerHTML = v.minOptions.map((m) => `<option value="${m}" ${m === state.min ? "selected" : ""}>${m === 0 ? "Any projected " + v.volLabel : m + "+ projected " + v.volLabel}</option>`).join("");
+}
+
+function renderTable() {
+  const v = VIEWS[state.tab];
+  const [skey, sdir] = state.sort[state.tab];
+  $("thead").innerHTML = v.cols.map((c) => {
+    const sorted = c.key === skey;
+    const aria = sorted ? ` aria-sort="${sdir > 0 ? "ascending" : "descending"}"` : "";
+    return `<th${aria}><button type="button" data-key="${c.key}">${c.label}${sorted ? (sdir > 0 ? " ▲" : " ▼") : ""}</button></th>`;
+  }).join("");
+  const rows = filtered();
+  $("count").textContent = `${rows.length} ${({ h: "hitters", p: "starting pitchers", r: "relievers" })[state.tab]}`;
+  if (!rows.length) {
+    $("tbody").innerHTML = `<tr><td colspan="${v.cols.length}" class="empty">No players match. Clear the search or lower the playing-time filter.</td></tr>`;
+    return rows;
+  }
+  const sel = state.sel[state.tab];
+  $("tbody").innerHTML = rows.map((r) => `<tr tabindex="0" data-id="${r.id}" aria-selected="${r.id === sel}">${v.cols.map((c) => `<td>${c.cell(view(r))}</td>`).join("")}</tr>`).join("");
+  return rows;
+}
+
+function rangeBar(label, lo, mid, hi, mean, min, max, fmt) {
+  const pos = (x) => Math.max(0, Math.min(100, ((x - min) / (max - min)) * 100));
+  return `<div class="range">
+    <div class="rl"><span>${label}</span><span>P10 <b>${fmt(lo)}</b> · P50 <b>${fmt(mid)}</b> · P90 <b>${fmt(hi)}</b></span></div>
+    <div class="bar" role="img" aria-label="${label}: 10th percentile ${fmt(lo)}, median ${fmt(mid)}, 90th percentile ${fmt(hi)}, mean ${fmt(mean)}">
+      <div class="band" style="left:${pos(lo)}%;width:${Math.max(1, pos(hi) - pos(lo))}%"></div>
+      <div class="tick" style="left:${pos(mid)}%"></div>
+      <div class="mean" style="left:${pos(mean)}%"></div>
+    </div>
+    <div class="axis"><span>${fmt(min)}</span><span>mean ${fmt(mean)}</span><span>${fmt(max)}</span></div>
+  </div>`;
+}
+
+const cell = (l, v) => `<div><span>${l}</span><b>${v}</b></div>`;
+
+function renderDetail(raw) {
+  const r = raw ? view(raw) : raw;
+  if (!r) { $("detail").innerHTML = `<p class="note">Select a player to see the full projection.</p>`; return; }
+  const chips = [];
+  if (r.focus === 1) chips.push(`<span class="chip on">Focus group</span>`);
+  chips.push(`<span class="pill ${fragClass(r.frag)}">${fragWord(r.frag)} · ${f2(r.frag)}</span>`);
+  if (r.opts != null) chips.push(`<span class="chip">${f0(r.opts)} option${r.opts === 1 ? "" : "s"} left</span>`);
+  if (r.il) chips.push(`<span class="chip ${r.il >= 60 ? "alert" : ""}">${f0(r.il)} IL days in 2026</span>`);
+  if (state.tab === "p" && r.arm) chips.push(`<span class="chip alert">Arm or shoulder IL, last 2 yrs</span>`);
+  if (r.fa === 1) chips.push(`<span class="chip on">Free agent</span>`);
+  if (r.status && r.status !== "MLB") chips.push(`<span class="chip">${r.status}</span>`);
+  if (r.override) chips.push(`<span class="chip alert" title="${r.override}">Manual override</span>`);
+  if (r.injury) chips.push(`<span class="chip alert">${r.injury}</span>`);
+  if (r.pfull != null && state.tab === "p") chips.push(`<span class="chip">${pct(r.pfull, 0)} chance of a full season</span>`);
+  if (r.rank != null && state.tab === "p") chips.push(`<span class="chip">#${f0(r.rank)} in ${r.team} rotation pecking order (${pct(r.prot, 0)} hold a spot historically)</span>`);
+  if (r.role && r.role !== "starter" && state.tab === "p") chips.push(`<span class="chip on">${r.role === "convert" ? "Moved into the rotation in 2026" : "Started and relieved in 2026"}</span>`);
+
+  if (state.tab === "r") {
+    if (r.swing === 1) chips.push(`<span class="chip on">Also projected as a starter</span>`);
+    if (r.svshare != null) chips.push(`<span class="chip">Projected ${pct(r.svshare, 0)} of ${r.team} saves</span>`);
+    $("detail").innerHTML = `
+      <div><h2 class="dname">${r.name}</h2>
+        <div class="dmeta">${r.throws ?? ""}HP · ${r.team ?? ""} in 2026 · age ${r.age?.toFixed(1)} in 2027 · ${f0(r.g26)} G (${f0(r.gs26)} GS), ${r.ip26?.toFixed(1)} IP, ${f0(r.sv26)} SV, ${f0(r.hld26)} HLD in 2026</div></div>
+      <div class="chips">${chips.join("")}</div>
+      <div class="headline">
+        <div class="big"><div class="v">${f0(r.sv)}</div><div class="l">Saves</div></div>
+        <div class="big"><div class="v">${f0(r.hld)}</div><div class="l">Holds</div></div>
+        <div class="big"><div class="v">${pct(r.p20sv, 0)}</div><div class="l">Chance of 20+ SV</div></div>
+      </div>
+      <div class="sect"><h3>Ranges</h3>
+        ${rangeBar("Saves", r.sv10, r.sv50, r.sv90, r.sv, 0, 45, f0)}
+        ${rangeBar("Innings pitched", r.ip10, r.ip50, r.ip90, r.ip, 0, 90, f0)}
+      </div>
+      <div class="sect"><h3>Stat line (as a reliever)</h3><div class="grid">
+        ${cell("ERA", f2(r.era))}${cell("FIP", f2(r.fip))}${cell("WHIP", f2(r.whip))}${cell("K", f0(r.k))}
+        ${cell("K%", pct(r.kpct))}${cell("BB%", pct(r.bbpct))}${cell("K-BB%", pct(r.kbb))}${cell("IP", f0(r.ip))}
+        ${cell("W", f0(r.w))}${cell("L", f0(r.l))}${cell("SV", f0(r.sv))}${cell("HLD", f0(r.hld))}
+      </div></div>
+      <p class="note">Saves follow team role decisions that are often made in the offseason; these update best once preseason depth charts exist.${r.stuff ? ` Stuff+ (Sep 2026): ${r.stuff.toFixed(0)}.` : ""}</p>`;
+  } else if (state.tab === "h") {
+    $("detail").innerHTML = `
+      <div><h2 class="dname">${r.name}</h2>
+        <div class="dmeta">${r.pos ?? ""} · ${r.team ?? ""} in 2026 · age ${r.age?.toFixed(1)} in 2027 · ${f0(r.pa26)} PA in 2026, ${f0(r.career)} career</div></div>
+      <div class="chips">${chips.join("")}</div>
+      <div class="headline">
+        <div class="big"><div class="v">${f3(r.woba)}</div><div class="l">wOBA</div></div>
+        <div class="big"><div class="v">${f0(r.pa)}</div><div class="l">PA</div></div>
+        <div class="big"><div class="v">${pct(r.p300, 0)}</div><div class="l">Chance of 300+ PA</div></div>
+      </div>
+      <div class="sect"><h3>Ranges</h3>
+        ${rangeBar("Plate appearances", r.pa10, r.pa50, r.pa90, raw.pa, 0, 720, f0)}
+
+        ${rangeBar("wOBA", r.woba10, r.woba, r.woba90, r.woba, 0.22, 0.46, f3)}
+      </div>
+      <div class="sect"><h3>Stat line</h3><div class="grid">
+        ${cell("AVG", f3(r.avg))}${cell("OBP", f3(r.obp))}${cell("SLG", f3(r.slg))}${cell("OPS", f3(r.ops))}
+        ${cell("ISO", f3(r.iso))}${cell("BABIP", f3(r.babip))}${cell("K%", pct(r.kpct))}${cell("BB%", pct(r.bbpct))}
+        ${cell("HR", f0(r.hr))}${cell("R", f0(r.r))}${cell("RBI", f0(r.rbi))}${cell("SB", f0(r.sb))}
+        ${cell("CS", f0(r.cs))}${cell("BB", f0(r.bb))}${cell("K", f0(r.k))}${cell("Vol. pctile", f2(r.vol))}
+      </div></div>
+      <p class="note">Counting stats are at the projected playing time. Prospect threat at his position in the org: ${r.threat == null ? "none found" : f2(r.threat)} (higher means a stronger upper-minors prospect).</p>`;
+  } else {
+    $("detail").innerHTML = `
+      <div><h2 class="dname">${r.name}</h2>
+        <div class="dmeta">${r.throws ?? ""}HP · ${r.team ?? ""} in 2026 · age ${r.age?.toFixed(1)} in 2027 · ${r.ip26?.toFixed(1)} MLB IP and ${f0(r.gs26)} GS in 2026 (${r.tip26?.toFixed(1)} IP incl. minors and rehab)</div></div>
+      <div class="chips">${chips.join("")}</div>
+      <div class="headline">
+        <div class="big"><div class="v">${f2(r.fip)}</div><div class="l">FIP</div></div>
+        <div class="big"><div class="v">${f0(r.ip)}</div><div class="l">IP · typical ${f0(r.ip50)}</div></div>
+        <div class="big"><div class="v">${pct(r.p100, 0)}</div><div class="l">Chance of 100+ IP</div></div>
+      </div>
+      <div class="sect"><h3>Workload range</h3>
+        ${rangeBar("Innings pitched", r.ip10, r.ip50, r.ip90, raw.ip, 0, 215, f0)}
+        <p class="note">IP is the expected workload including injury risk; "typical" is the median outcome.${raw.stuff ? ` Stuff+ (Sep 2026): ${raw.stuff.toFixed(0)}.` : ""}</p>
+      </div>
+      <div class="sect"><h3>Stat line</h3><div class="grid">
+        ${cell("ERA", f2(r.era))}${cell("FIP", f2(r.fip))}${cell("WHIP", f2(r.whip))}${cell("HR/9", f2(r.hr9))}
+        ${cell("K%", pct(r.kpct))}${cell("BB%", pct(r.bbpct))}${cell("K-BB%", pct(r.kbb))}${cell("GS", f0(r.gs))}
+        ${cell("K", f0(r.k))}${cell("BB", f0(r.bb))}${cell("W", f0(r.w))}${cell("L", f0(r.l))}
+        ${cell("QS", f0(r.qs))}${cell("TBF", f0(r.tbf))}${cell("150+ IP", pct(r.p150, 0))}
+      </div></div>
+      <p class="note">Counting stats are at the projected playing time. For pitchers coming back from arm injuries the outcome is often all-or-nothing, so read the range, not just the mean.</p>`;
+  }
+}
+
+function selectRow(id) {
+  state.sel[state.tab] = id;
+  const r = VIEWS[state.tab].rows.find((x) => x.id === id);
+  document.querySelectorAll("#tbody tr").forEach((tr) => tr.setAttribute("aria-selected", Number(tr.dataset.id) === id));
+  renderDetail(r);
+}
+
+function render() {
+  renderControls();
+  const rows = renderTable();
+  let id = state.sel[state.tab];
+  if (id == null || !VIEWS[state.tab].rows.some((r) => r.id === id)) {
+    const pick = VIEWS[state.tab].rows.find((r) => r.name === ({ h: "Curtis Mead", p: "Jackson Jobe", r: "Mason Montgomery" })[state.tab]) || rows[0];
+    id = pick ? pick.id : null;
+  }
+  if (id != null) selectRow(id); else renderDetail(null);
+  try { localStorage.setItem("goose-browser", JSON.stringify({ tab: state.tab })); } catch (e) {}
+}
+
+$("q").addEventListener("input", (e) => {
+  state.q = e.target.value;
+  const rows = renderTable();
+  if (rows.length && state.q.trim()) selectRow(rows[0].id);
+});
+$("tab-h").addEventListener("click", () => { state.tab = "h"; state.min = 0; render(); });
+$("tab-p").addEventListener("click", () => { state.tab = "p"; state.min = 0; render(); });
+$("tab-r").addEventListener("click", () => { state.tab = "r"; state.min = 0; render(); });
+$("focusOnly").addEventListener("change", (e) => { state.focus = e.target.checked; renderTable(); });
+$("minVol").addEventListener("change", (e) => { state.min = Number(e.target.value); renderTable(); });
+$("faFilter").addEventListener("change", (e) => { state.fa = e.target.value; renderTable(); });
+
+$("thead").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-key]"); if (!b) return;
+  const key = b.dataset.key; const [k, d] = state.sort[state.tab];
+  state.sort[state.tab] = [key, k === key ? -d : (key === "name" || ["era", "fip", "whip", "frag"].includes(key) ? 1 : -1)];
+  renderTable();
+});
+$("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) selectRow(Number(tr.dataset.id)); });
+$("tbody").addEventListener("keydown", (e) => {
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectRow(Number(tr.dataset.id)); }
+  if (e.key === "ArrowDown" && tr.nextElementSibling) { tr.nextElementSibling.focus(); e.preventDefault(); }
+  if (e.key === "ArrowUp" && tr.previousElementSibling) { tr.previousElementSibling.focus(); e.preventDefault(); }
+});
+render();
+</script>

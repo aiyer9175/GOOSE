@@ -1,0 +1,7 @@
+pandas>=2.2
+pyarrow>=15
+requests>=2.31
+scikit-learn>=1.5
+scipy>=1.13
+duckdb>=1.0
+gdown>=5
