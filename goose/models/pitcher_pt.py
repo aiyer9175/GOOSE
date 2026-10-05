@@ -1,6 +1,8 @@
 """Starting-pitcher playing time: next-season MLB IP and GS from end-of-season context."""
 from __future__ import annotations
 
+from goose.data.http import ROOT as ROOT_40
+
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
@@ -27,6 +29,9 @@ def build_pt_frame(seasons: pd.DataFrame) -> pd.DataFrame:
             s[f"{c}_l{lag}"] = prev[c].to_numpy()
         s[f"fb_velo_l{lag}"] = prev.fb_velo.to_numpy()
     s["velo_delta"] = s.fb_velo - s.fb_velo_l1
+    _r40 = pd.read_parquet(ROOT_40 / "data" / "processed" / "roster40_end.parquet")
+    s["on_40man"] = pd.MultiIndex.from_arrays([s.mlbam_id, s.season]).isin(
+        pd.MultiIndex.from_arrays([_r40.mlbam_id, _r40.season])).astype(int)
     from goose.data.http import ROOT as _ROOT
     tw = pd.read_parquet(_ROOT / "data" / "features" / "team_wpct.parquet").set_index(["team", "season"]).team_wpct
     s["team_wpct"] = tw.reindex(pd.MultiIndex.from_arrays([s.team, s.season])).to_numpy()
@@ -65,7 +70,7 @@ FEATURES = [
     "il_at_season_end", "il_arm_l1", "il_surgery_l1", "age", "years_since_debut", "career_gs_before",
     "options_left", "kbb", "kbb_shrunk", "xwoba_shrunk", "fb_velo", "velo_delta", "milb_gs",
     "log_pick", "undrafted", "absent", "seasons_130_5y", "ip_5y_mean", "il_days_5y",
-    "fv_eff", "top100_eff", "fv_known", "rehab_n", "rehab_late", "rehab_month",
+    "fv_eff", "top100_eff", "fv_known", "rehab_n", "rehab_late", "rehab_month", "on_40man",
 ]
 
 
@@ -125,7 +130,7 @@ def full_workload_starter(s: pd.DataFrame) -> pd.Series:
     """Has carried a starter's load (140+ IP in one of the last 3 seasons) and ended the season
     healthy (not a 60+ day IL stint at season end, no surgery)."""
     full = (s[["ip", "ip_l1", "ip_l2"]].fillna(0) >= 140).sum(axis=1) >= 1
-    hurt = ((s.il_at_season_end == 1) & (s.il_days >= 60)) | (s.il_surgery == 1)
+    hurt = ((s.il_at_season_end == 1) & (s.il_end_spell_days.fillna(s.il_days) >= 60)) | (s.il_surgery == 1)
     return full & ~hurt & (s.absent == 0)
 
 
@@ -343,3 +348,36 @@ def role_group(s: pd.DataFrame) -> pd.Series:
     conv = (s.gs >= 8) & (prior_gs.max(axis=1) < 10)
     mixed = (s.gs >= 3) & (s.sp_share < 0.8) & ~conv
     return pd.Series(np.select([conv, mixed], ["convert", "mixed"], "starter"), index=s.index)
+
+
+class ConversionModel:
+    """P(a reliever becomes a starter next year: 10+ real starts), the Jax route. Base rate ~2%;
+    prior starting history (MLB or MiLB), multi-inning relief, quality and a few real starts raise it.
+    Also learns the typical next-year IP of relievers who did convert (relative to this year's)."""
+
+    def _x(self, s):
+        relief_g = (s.games - s.gs).clip(lower=1)
+        per_relief = ((s.ip - s.sp_outs.fillna(0) / 3) / relief_g).clip(0, 4)
+        prior_sp = s.gs_l1.fillna(0) + s.gs_l2.fillna(0) + s.milb_gs.fillna(0)
+        relief_ip = (s.ip - s.sp_outs.fillna(0) / 3).clip(lower=0)  # heavy relief volume (e.g. 75+ IP) converts more
+        return np.nan_to_num(np.column_stack([np.log1p(prior_sp), per_relief, (s.kbb_shrunk.fillna(.13) - .13) / .04,
+                                              (s.age.fillna(28) - 28) / 4, s.gs.fillna(0), s.total_ip.fillna(0) / 50,
+                                              relief_ip / 25]))
+
+    def fit(self, f: pd.DataFrame, last_target: int) -> "ConversionModel":
+        from sklearn.linear_model import LogisticRegression
+        key = f.set_index(["mlbam_id", "season"])
+        nx = key.reindex(pd.MultiIndex.from_arrays([f.mlbam_id, f.season + 1]))
+        f = f.assign(gs_next=nx.gs.fillna(0).to_numpy())
+        rp = f[(f.gs < 8) & ((f.games - f.gs) >= 15) & f.season.between(2015, last_target - 1)
+               & ~f.season.isin([2019, 2020]) & (f.absent == 0)]
+        y = (rp.gs_next >= 10).astype(int)
+        self.m = LogisticRegression(C=1.0, max_iter=1000).fit(self._x(rp), y)
+        conv = rp[y == 1]
+        self.ip_fit = np.polyfit(conv.total_ip.clip(30, 160), conv.ip_next, 1)  # IP if converted
+        return self
+
+    def predict(self, s: pd.DataFrame) -> pd.DataFrame:
+        p = self.m.predict_proba(self._x(s))[:, 1]
+        ip_conv = np.clip(np.polyval(self.ip_fit, s.total_ip.fillna(0).clip(30, 160)), 40, 180)
+        return pd.DataFrame({"P_convert": p, "IP_if_converted": ip_conv}, index=s.index)

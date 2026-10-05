@@ -112,6 +112,29 @@ td .pmeta { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .note { color: var(--muted); font-size: 12.5px; max-width: 65ch; }
 .empty { padding: 30px 14px; color: var(--muted); text-align: center; }
 footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-width: 90ch; }
+.seg { flex-wrap: wrap; }
+.view { display: grid; gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel h2 { font-family: var(--display); font-weight: 700; font-size: 24px; margin: 0; line-height: 1.05; }
+.panel h3 { font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.tile { border-top: 2px solid var(--ink); padding-top: 6px; }
+.tile .v { font-family: var(--display); font-weight: 600; font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
+.tile .l { color: var(--muted); font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase; margin-top: 3px; }
+.twocol { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px; align-items: start; }
+@media (max-width: 420px) { .twocol { grid-template-columns: 1fr; } }
+.mini { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.mini th, .mini td { padding: 6px 8px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+.mini th:first-child, .mini td:first-child { text-align: left; }
+.mini th { color: var(--muted); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; }
+.mini td.rk { color: var(--muted); width: 1.5em; text-align: left; }
+.plink { all: unset; cursor: pointer; font-weight: 600; }
+.plink:hover { text-decoration: underline; }
+.plink:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.mscroll { overflow-x: auto; }
+.lgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; align-items: start; }
+.lgroup { display: grid; gap: 10px; }
+.lgroup > h2 { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 4px 0 0; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -122,7 +145,7 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
       <span class="sub">Projections from end-of-2026 data &middot; rates, playing-time ranges and fragility</span>
     </div>
     <div class="controls">
-      <label class="search" for="q">
+      <label class="search" for="q" id="searchWrap">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
         <input id="q" type="search" placeholder="Search players or teams" autocomplete="off" aria-label="Search players or teams">
       </label>
@@ -130,8 +153,11 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
         <button id="tab-h" type="button" aria-pressed="true">Hitters</button>
         <button id="tab-p" type="button" aria-pressed="false">Starters</button>
         <button id="tab-r" type="button" aria-pressed="false">Relievers</button>
+        <button id="tab-t" type="button" aria-pressed="false">Teams</button>
+        <button id="tab-l" type="button" aria-pressed="false">Leaders</button>
       </div>
-      <label class="toggle" for="focusOnly"><input id="focusOnly" type="checkbox"> <span id="focusLabel">Focus group only</span></label>
+      <select id="teamSel" aria-label="Team" hidden></select>
+      <label class="toggle" for="focusOnly" id="focusWrap"><input id="focusOnly" type="checkbox"> <span id="focusLabel">Focus group only</span></label>
       <select id="minVol" aria-label="Minimum projected playing time"></select>
       <select id="faFilter" aria-label="Free agents">
         <option value="all">All players</option>
@@ -141,7 +167,7 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
     </div>
   </header>
 
-  <div class="main">
+  <div class="main" id="playerView">
     <section class="tablebox" aria-label="Projection table">
       <div class="tablemeta"><span id="count"></span><span>Click a row for the full projection. Click a column to sort.</span></div>
       <div class="scroll"><table><thead><tr id="thead"></tr></thead><tbody id="tbody"></tbody></table></div>
@@ -149,16 +175,21 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
     <aside class="detail" id="detail" aria-live="polite"></aside>
   </div>
 
+  <section class="view" id="teamView" hidden aria-label="Team projections"></section>
+  <section class="view" id="leadView" hidden aria-label="Projected leaders"></section>
+
   <footer>
     <div>Backtest 2022&ndash;2026 (projections made from prior-season data only): hitter wOBA error ties Steamer and beats ZiPS overall; trails Steamer by about 3% on hitters with 100&ndash;300 PA. Starters with 0&ndash;80 IP: K-BB% slightly better than Steamer, FIP slightly worse.</div>
     <div>Playing-time ranges (P10&ndash;P90) captured 79&ndash;85% of actual outcomes in backtests. Fragility combines outcome spread and playing-time risk (hitters) or chance of falling short of 100 IP plus recent arm or shoulder IL time (pitchers).</div>
     <div>Focus group: hitters with 100&ndash;300 PA and starters with 0&ndash;80 IP in 2026. Free agents (RosterResource tracker: certain or probable) get a neutral park and no org-specific context.</div>
-    <div>Playing time blends injury-adjusted and healthy workloads, leaning further toward the healthy workload for better, more established players (weights learned from backtests). Minor leaguers and players who missed 2026 are included and labeled. Swingmen appear in both the starter and reliever lists.</div>
+    <div>Full-time hitters and starters are projected at their recent healthy workload (minus a fitted gap for age, workload size and quality); injury risk shows in the full-season chance and the P10, not the headline. Left-handed hitters get a platoon role from a model of next year's starts vs lefty starters; individual platoon splits are regressed almost entirely to the league split. Minor leaguers and players who missed 2026 are included and labeled. Swingmen appear in both the starter and reliever lists.</div>
   </footer>
 </div>
 
 <script>
 const DATA = /*__DATA__*/null;
+// Accent- and case-insensitive matching: "jose ramirez" finds "José Ramírez".
+const fold = (x) => String(x).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\./g, "").toLowerCase();
 const $ = (id) => document.getElementById(id);
 const f3 = (v) => v == null ? "–" : (v < 1 ? v.toFixed(3).replace(/^0/, "") : v.toFixed(3));
 const f2 = (v) => v == null ? "–" : v.toFixed(2);
@@ -237,12 +268,12 @@ try { const saved = JSON.parse(localStorage.getItem("goose-browser") || "{}"); i
 
 function filtered() {
   const v = VIEWS[state.tab];
-  const q = state.q.trim().toLowerCase();
+  const q = fold(state.q.trim());
   const [key, dir] = state.sort[state.tab];
   return v.rows
     .filter((r) => (!state.focus || (state.tab === "r" ? r.swing === 1 : r.focus === 1)) && (view(r)[v.vol] ?? 0) >= state.min)
     .filter((r) => state.fa === "all" || (state.fa === "fa" ? r.fa === 1 : r.fa !== 1))
-    .filter((r) => !q || r.name.toLowerCase().includes(q) || (r.team || "").toLowerCase() === q)
+    .filter((r) => !q || fold(r.name).includes(q) || fold(r.team || "") === q)
     .sort((a, b) => {
       const x = view(a)[key], y = view(b)[key];
       if (typeof x === "string") return dir * x.localeCompare(y);
@@ -252,7 +283,6 @@ function filtered() {
 
 function renderControls() {
   const v = VIEWS[state.tab];
-  ["h", "p", "r"].forEach((t) => $("tab-" + t).setAttribute("aria-pressed", state.tab === t));
   $("focusLabel").textContent = v.focusLabel;
   $("minVol").innerHTML = v.minOptions.map((m) => `<option value="${m}" ${m === state.min ? "selected" : ""}>${m === 0 ? "Any projected " + v.volLabel : m + "+ projected " + v.volLabel}</option>`).join("");
 }
@@ -305,8 +335,8 @@ function renderDetail(raw) {
   if (r.override) chips.push(`<span class="chip alert" title="${r.override}">Manual override</span>`);
   if (r.injury) chips.push(`<span class="chip alert">${r.injury}</span>`);
   if (r.pfull != null && state.tab === "p") chips.push(`<span class="chip">${pct(r.pfull, 0)} chance of a full season</span>`);
-  if (r.rank != null && state.tab === "p") chips.push(`<span class="chip">#${f0(r.rank)} in ${r.team} rotation pecking order (${pct(r.prot, 0)} hold a spot historically)</span>`);
-  if (r.role && r.role !== "starter" && state.tab === "p") chips.push(`<span class="chip on">${r.role === "convert" ? "Moved into the rotation in 2026" : "Started and relieved in 2026"}</span>`);
+  if (r.rank != null && state.tab === "p" && r.role !== "conversion") chips.push(`<span class="chip">#${f0(r.rank)} in ${r.team} rotation pecking order (${pct(r.prot, 0)} hold a spot historically)</span>`);
+  if (r.role && r.role !== "starter" && state.tab === "p") chips.push(`<span class="chip on">${({ convert: "Moved into the rotation in 2026", mixed: "Started and relieved in 2026", conversion: "Reliever: conversion candidate (" + pct(r.prot, 0) + " chance of a rotation role)" })[r.role] || r.role}</span>`);
 
   if (state.tab === "r") {
     if (r.swing === 1) chips.push(`<span class="chip on">Also projected as a starter</span>`);
@@ -339,6 +369,12 @@ function renderDetail(raw) {
         <div class="big"><div class="v">${f3(r.woba)}</div><div class="l">wOBA</div></div>
         <div class="big"><div class="v">${f0(r.pa)}</div><div class="l">PA</div></div>
         <div class="big"><div class="v">${pct(r.p300, 0)}</div><div class="l">Chance of 300+ PA</div></div>
+      </div>
+      <div class="chips">
+        <span class="chip ${r.role === "Strict platoon" ? "alert" : r.role === "Soft platoon" ? "" : "on"}">${r.role ?? "Plays vs both"}</span>
+        ${r.palshare != null ? `<span class="chip">${pct(r.palshare, 0)} of PA vs LHP</span>` : ""}
+        ${r.wvr != null ? `<span class="chip">wOBA vs RHP ${f3(r.wvr)} · vs LHP ${f3(r.wvl)}</span>` : ""}
+        ${r.pfull != null ? `<span class="chip">${pct(r.pfull, 0)} chance of a full-time season</span>` : ""}
       </div>
       <div class="sect"><h3>Ranges</h3>
         ${rangeBar("Plate appearances", r.pa10, r.pa50, r.pa90, raw.pa, 0, 720, f0)}
@@ -383,7 +419,131 @@ function selectRow(id) {
   renderDetail(r);
 }
 
+const TEAM_PA = 6150;  // a team's plate appearances in a season
+const isFA = (r) => r.fa === 1;
+const faOk = (r) => state.fa === "all" || (state.fa === "fa" ? isFA(r) : !isFA(r));
+const plink = (tab, r) => `<button class="plink" type="button" data-tab="${tab}" data-id="${r.id}">${r.name}</button>`;
+const wavg = (rows, k, w) => { const W = rows.reduce((a, r) => a + (r[w] || 0), 0); return W ? rows.reduce((a, r) => a + (r[k] || 0) * (r[w] || 0), 0) / W : null; };
+const tile = (v, l) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+
+function teams() {
+  const t = new Set();
+  [...DATA.hitters, ...DATA.pitchers, ...DATA.relievers].forEach((r) => { if (r.team && !isFA(r)) t.add(r.team); });
+  return [...t].sort();
+}
+
+function teamSummary(team) {
+  const hit = DATA.hitters.filter((r) => r.team === team && !isFA(r) && (r.status === "MLB" || (r.pa || 0) >= 100))
+    .sort((a, b) => (b.pa || 0) - (a.pa || 0));
+  const lineup = hit.slice(0, 13);
+  const pa = lineup.reduce((a, r) => a + (r.pa || 0), 0);
+  const scale = pa > TEAM_PA ? TEAM_PA / pa : 1;
+  const sum = (rows, k, sc = 1) => rows.reduce((a, r) => a + (r[k] || 0), 0) * sc;
+  const rot = DATA.pitchers.filter((r) => r.team === team && !isFA(r) && r.rank != null).sort((a, b) => a.rank - b.rank);
+  const top5 = rot.slice(0, 5);
+  const rotIds = new Set(top5.map((r) => r.id));
+  const penAll = DATA.relievers.filter((r) => r.team === team && !isFA(r) && !rotIds.has(r.id));
+  const pen = [...penAll].sort((a, b) => (b.sv || 0) - (a.sv || 0) || (b.hld || 0) - (a.hld || 0));
+  return {
+    team, hit, rot, pen, lineup,
+    woba: wavg(lineup, "woba", "pa"), avg: wavg(lineup, "avg", "pa"), obp: wavg(lineup, "obp", "pa"), slg: wavg(lineup, "slg", "pa"),
+    hr: sum(lineup, "hr", scale), r: sum(lineup, "r", scale), sb: sum(lineup, "sb", scale),
+    rotEra: wavg(top5, "era", "ip"), rotFip: wavg(top5, "fip", "ip"), rotIp: sum(top5, "ip"), rotK: sum(top5, "k"),
+    penSv: sum(penAll, "sv"), penEra: wavg(penAll.filter((r) => (r.ip || 0) >= 20), "era", "ip"),
+  };
+}
+
+const TEAM_COLS = [
+  { key: "team", label: "Team", fmt: (v) => v }, { key: "woba", label: "wOBA", fmt: f3 }, { key: "obp", label: "OBP", fmt: f3 },
+  { key: "slg", label: "SLG", fmt: f3 }, { key: "hr", label: "HR", fmt: f0 }, { key: "r", label: "R", fmt: f0 },
+  { key: "sb", label: "SB", fmt: f0 }, { key: "rotEra", label: "Rot ERA", fmt: f2, asc: true },
+  { key: "rotFip", label: "Rot FIP", fmt: f2, asc: true }, { key: "rotIp", label: "Rot IP", fmt: f0 },
+  { key: "rotK", label: "Rot K", fmt: f0 }, { key: "penSv", label: "Pen SV", fmt: f0 }, { key: "penEra", label: "Pen ERA", fmt: f2, asc: true },
+];
+
+function renderTeams() {
+  const all = teams().map(teamSummary);
+  const [sk, sd] = state.teamSort;
+  all.sort((a, b) => sk === "team" ? sd * a.team.localeCompare(b.team) : sd * ((a[sk] ?? -Infinity) - (b[sk] ?? -Infinity)));
+  const t = all.find((x) => x.team === state.team) || all[0];
+  const fas = [...DATA.hitters, ...DATA.pitchers].filter((r) => r.team === t.team && isFA(r)).map((r) => r.name);
+  const tbl = (head, rows) => `<div class="mscroll"><table class="mini"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  $("teamView").innerHTML = `
+    <div class="panel">
+      <h3>All teams · click a column to sort, a team to open it</h3>
+      <div class="mscroll"><table class="mini" id="teamTable"><thead><tr>${TEAM_COLS.map((c) =>
+        `<th${c.key === sk ? ` aria-sort="${sd > 0 ? "ascending" : "descending"}"` : ""}><button class="plink" type="button" data-sort="${c.key}">${c.label}${c.key === sk ? (sd > 0 ? " ▲" : " ▼") : ""}</button></th>`).join("")}</tr></thead>
+        <tbody>${all.map((x) => `<tr data-team="${x.team}" tabindex="0" aria-selected="${x.team === t.team}" style="cursor:pointer">${TEAM_COLS.map((c) => `<td>${c.fmt(x[c.key])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+      <p class="note">Lineup = top 13 hitters by projected PA (counting stats scaled to a full season of team PA); rotation = top 5 in the pecking order; bullpen = everyone else in relief. End-of-2026 rosters, departing free agents removed, no winter signings yet.</p>
+    </div>
+    <div class="panel">
+      <h2>${t.team} projected 2027</h2>
+      ${fas.length ? `<p class="note">Departing free agents removed: ${fas.slice(0, 8).join(", ")}${fas.length > 8 ? `, +${fas.length - 8} more` : ""}.</p>` : ""}
+      <div class="tiles">
+        ${tile(f3(t.woba), "Lineup wOBA")}
+        ${tile(`${f3(t.avg)}/${f3(t.obp)}/${f3(t.slg)}`, "AVG/OBP/SLG")}
+        ${tile(f0(t.hr), "Home runs")}${tile(f0(t.r), "Runs")}${tile(f0(t.sb), "Stolen bases")}
+        ${tile(f2(t.rotEra), "Rotation ERA")}${tile(f0(t.rotIp), "Rotation IP (top 5)")}${tile(f0(t.penSv), "Bullpen saves")}
+      </div>
+    </div>
+    <div class="twocol">
+      <div class="panel"><h3>Lineup and bench</h3>
+        ${tbl(["Player", "Pos", "PA", "AVG/OBP/SLG", "wOBA", "HR", "SB"], t.hit.slice(0, 16).map((r) =>
+          `<tr><td>${plink("h", r)}</td><td>${r.pos ?? ""}</td><td>${f0(r.pa)}</td><td>${f3(r.avg)}/${f3(r.obp)}/${f3(r.slg)}</td><td>${f3(r.woba)}</td><td>${f0(r.hr)}</td><td>${f0(r.sb)}</td></tr>`))}
+      </div>
+      <div class="panel"><h3>Rotation pecking order</h3>
+        ${tbl(["#", "Pitcher", "IP", "ERA", "FIP", "K", "Spot"], t.rot.slice(0, 8).map((r) =>
+          `<tr><td class="rk">${f0(r.rank)}</td><td>${plink("p", r)}</td><td>${f0(r.ip)}</td><td>${f2(r.era)}</td><td>${f2(r.fip)}</td><td>${f0(r.k)}</td><td>${r.prot != null ? pct(r.prot, 0) : "–"}</td></tr>`))}
+        <h3>Bullpen</h3>
+        ${tbl(["Reliever", "IP", "SV", "HLD", "ERA", "K%", "SV share"], t.pen.slice(0, 10).map((r) =>
+          `<tr><td>${plink("r", r)}</td><td>${f0(r.ip)}</td><td>${f0(r.sv)}</td><td>${f0(r.hld)}</td><td>${f2(r.era)}</td><td>${pct(r.kpct)}</td><td>${r.svshare != null ? pct(r.svshare, 0) : "–"}</td></tr>`))}
+      </div>
+    </div>`;
+}
+
+const LEADERS = [
+  { group: "Hitters", tab: "h", rows: () => DATA.hitters, cats: [
+    { key: "hr", label: "Home runs", fmt: f0 }, { key: "r", label: "Runs", fmt: f0 },
+    { key: "rbi", label: "RBI", fmt: f0 }, { key: "sb", label: "Stolen bases", fmt: f0 },
+    { key: "avg", label: "Batting average", fmt: f3, min: ["pa", 400] }, { key: "obp", label: "On-base percentage", fmt: f3, min: ["pa", 400] },
+    { key: "woba", label: "wOBA", fmt: f3, min: ["pa", 400] }, { key: "pa", label: "Plate appearances", fmt: f0 } ] },
+  { group: "Starters", tab: "p", rows: () => DATA.pitchers, cats: [
+    { key: "k", label: "Strikeouts", fmt: f0 }, { key: "w", label: "Wins", fmt: f0 },
+    { key: "qs", label: "Quality starts", fmt: f0 }, { key: "ip", label: "Innings", fmt: f0 },
+    { key: "era", label: "ERA", fmt: f2, asc: true, min: ["ip", 120] }, { key: "whip", label: "WHIP", fmt: f2, asc: true, min: ["ip", 120] },
+    { key: "kpct", label: "Strikeout rate", fmt: (v) => pct(v), min: ["ip", 120] }, { key: "fip", label: "FIP", fmt: f2, asc: true, min: ["ip", 120] } ] },
+  { group: "Relievers", tab: "r", rows: () => DATA.relievers.filter((r) => r.swing !== 1), cats: [
+    { key: "sv", label: "Saves", fmt: f0 }, { key: "hld", label: "Holds", fmt: f0 }, { key: "ip", label: "Relief innings", fmt: f0 },
+    { key: "k", label: "Strikeouts", fmt: f0 }, { key: "kpct", label: "Strikeout rate", fmt: (v) => pct(v), min: ["ip", 40] } ] },
+];
+
+function renderLeaders() {
+  $("leadView").innerHTML = LEADERS.map((g) => `
+    <div class="lgroup"><h2>${g.group}</h2><div class="lgrid">${g.cats.map((c) => {
+      const rows = g.rows().filter((r) => faOk(r) && r[c.key] != null && (!c.min || (r[c.min[0]] || 0) >= c.min[1]))
+        .sort((a, b) => c.asc ? a[c.key] - b[c.key] : b[c.key] - a[c.key]).slice(0, 10);
+      return `<div class="panel"><h3>${c.label}${c.min ? ` · min ${c.min[1]} ${c.min[0].toUpperCase()}` : ""}</h3>
+        <table class="mini"><tbody>${rows.map((r, i) => `<tr><td class="rk">${i + 1}</td><td>${plink(g.tab, r)} <span class="pmeta">${r.team ?? ""}</span></td><td>${c.fmt(r[c.key])}</td></tr>`).join("")}</tbody></table></div>`;
+    }).join("")}</div></div>`).join("");
+}
+
+function openPlayer(tab, id) {
+  state.tab = tab; state.min = 0; state.q = ""; $("q").value = ""; state.sel[tab] = id;
+  render();
+  const tr = document.querySelector(`#tbody tr[data-id="${id}"]`);
+  if (tr) tr.scrollIntoView({ block: "center" });
+}
+
 function render() {
+  const players = ["h", "p", "r"].includes(state.tab);
+  ["h", "p", "r", "t", "l"].forEach((t) => $("tab-" + t).setAttribute("aria-pressed", state.tab === t));
+  $("playerView").hidden = !players;
+  $("teamView").hidden = state.tab !== "t";
+  $("leadView").hidden = state.tab !== "l";
+  $("searchWrap").hidden = !players; $("focusWrap").hidden = !players; $("minVol").hidden = !players;
+  $("teamSel").hidden = state.tab !== "t"; $("faFilter").hidden = state.tab === "t";
+  if (state.tab === "t") { renderTeams(); return; }
+  if (state.tab === "l") { renderLeaders(); return; }
   renderControls();
   const rows = renderTable();
   let id = state.sel[state.tab];
@@ -403,9 +563,31 @@ $("q").addEventListener("input", (e) => {
 $("tab-h").addEventListener("click", () => { state.tab = "h"; state.min = 0; render(); });
 $("tab-p").addEventListener("click", () => { state.tab = "p"; state.min = 0; render(); });
 $("tab-r").addEventListener("click", () => { state.tab = "r"; state.min = 0; render(); });
+$("tab-t").addEventListener("click", () => { state.tab = "t"; render(); });
+$("tab-l").addEventListener("click", () => { state.tab = "l"; render(); });
+$("teamSel").innerHTML = teams().map((t) => `<option value="${t}">${t}</option>`).join("");
+state.team = teams().includes("TB") ? "TB" : teams()[0];
+state.teamSort = ["woba", -1];
+$("teamSel").value = state.team;
+$("teamSel").addEventListener("change", (e) => { state.team = e.target.value; renderTeams(); });
+["teamView", "leadView"].forEach((v) => $(v).addEventListener("click", (e) => {
+  const srt = e.target.closest("button[data-sort]");
+  if (srt) {
+    const k = srt.dataset.sort, col = TEAM_COLS.find((c) => c.key === k);
+    state.teamSort = [k, state.teamSort[0] === k ? -state.teamSort[1] : (col.asc || k === "team" ? 1 : -1)];
+    renderTeams(); return;
+  }
+  const b = e.target.closest(".plink[data-id]"); if (b) { openPlayer(b.dataset.tab, Number(b.dataset.id)); return; }
+  const row = e.target.closest("tr[data-team]");
+  if (row) { state.team = row.dataset.team; $("teamSel").value = state.team; renderTeams(); }
+}));
+$("teamView").addEventListener("keydown", (e) => {
+  const row = e.target.closest("tr[data-team]");
+  if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); state.team = row.dataset.team; $("teamSel").value = state.team; renderTeams(); }
+});
 $("focusOnly").addEventListener("change", (e) => { state.focus = e.target.checked; renderTable(); });
 $("minVol").addEventListener("change", (e) => { state.min = Number(e.target.value); renderTable(); });
-$("faFilter").addEventListener("change", (e) => { state.fa = e.target.value; renderTable(); });
+$("faFilter").addEventListener("change", (e) => { state.fa = e.target.value; state.tab === "l" ? renderLeaders() : renderTable(); });
 
 $("thead").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-key]"); if (!b) return;

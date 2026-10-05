@@ -88,6 +88,9 @@ def il_by_season(spells: pd.DataFrame | None = None) -> pd.DataFrame:
                                          il_surgery=("surgery", "max"))
         # Still on the IL when the season ended -> likely to start next season hurt.
         agg["il_at_season_end"] = g.assign(open=end[sel] >= hi).groupby("mlbam_id").open.max()
+        # Length of the stint he ended the season on (a two-week strain is not a lost season).
+        open_ = g[end[sel] >= hi]
+        agg["il_end_spell_days"] = open_.assign(d=(hi - open_.start).dt.days).groupby("mlbam_id").d.max()
         agg["season"] = y
         rows.append(agg.reset_index())
     out = pd.concat(rows, ignore_index=True)

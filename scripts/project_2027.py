@@ -22,12 +22,14 @@ from goose.data.http import ROOT  # noqa: E402
 from goose.eval.competitors import actual_hitters  # noqa: E402
 from goose.models import calibrate, injury_adjust, volatility  # noqa: E402
 from goose.models.hitter_rates import HitterRates, HitterRatesPed  # noqa: E402
-from goose.models.pitcher_pt import (StarterPlayingTime, build_pt_frame as pitcher_pt_frame, is_starter,  # noqa: E402
-                                     role_group, rotation_claim)
+from goose.models.pitcher_pt import (ConversionModel, StarterPlayingTime, build_pt_frame as pitcher_pt_frame,  # noqa: E402
+                                     is_starter, role_group, rotation_claim)
 from goose.models.pitcher_rates import PitcherRates  # noqa: E402
 from goose.models.reliever import RelieverModel, build_rp_frame, is_reliever, team_role_context  # noqa: E402
 from goose.models.saves_share import SavesShare  # noqa: E402
-from goose.models.playing_time import HitterPlayingTime, build_pt_frame as hitter_pt_frame, opportunity  # noqa: E402
+from goose.models.platoon import Platoon  # noqa: E402
+from goose.models.playing_time import (HitterPlayingTime, build_pt_frame as hitter_pt_frame,  # noqa: E402
+                                       opportunity, position_depth)
 from goose.models.statline import hitter_line, pitcher_line  # noqa: E402
 
 FEAT = ROOT / "data" / "features"
@@ -63,6 +65,11 @@ def fa_proxy(s: pd.DataFrame) -> pd.Series:
     nobody is flagged: an age/service guess wrongly flagged stars on long contracts (e.g. Judge).
     """
     flag = pd.Series(False, index=s.index)
+    # Payroll exports: players whose 2027 column reads FREE AGENT (contract or service time ends).
+    pay = ROOT / "data" / "processed" / "contracts_2026.parquet"
+    if pay.exists():
+        c = pd.read_parquet(pay)
+        flag |= s.index.isin(c.loc[c.status_2027 == "free_agent", "mlbam_id"].dropna().astype(int))
     if FA_FILE.exists():
         fa = pd.read_csv(FA_FILE)
         if "mlbam_id" in fa:
@@ -129,9 +136,19 @@ def project_hitters() -> pd.DataFrame:
     # 2027 openings: departing free agents no longer block anyone.
     now = ptf.season == BASE
     ptf.loc[now, "hole_woba"] = opportunity(ptf[now], exclude_ids=set(cur.mlbam_id[fa])).hole_woba
+    dep = position_depth(ptf[now], exclude_ids=set(cur.mlbam_id[fa]))
+    ptf.loc[now, ["pos_rivals", "pos_rival_best"]] = dep.to_numpy()
     pt_rows = ptf[ptf.season == BASE].set_index("mlbam_id").reindex(cur.mlbam_id)
     pt = pt_model.predict(pt_rows.reset_index()).set_index(cur.index)
 
+    # Platoon: re-weight rates for expected matchups vs LHP (LHH only; league-ish split).
+    pl = Platoon().fit(BASE + 1).project(cur.mlbam_id, BASE)
+    d_exp = (pl.pal_share_next - pl.pal_share_past).fillna(0)
+    woba_now = hitter_line(rates, pt.PA).wOBA
+    delta = -d_exp * pl.split.fillna(0)              # fewer lefty matchups -> better overall line
+    f = (1 + delta / woba_now.clip(lower=0.2)).clip(0.9, 1.1)
+    for c in ("hr", "babip", "bb"):
+        rates[c] = rates[c] * f
     line = hitter_line(rates, pt.PA)
     coefs = json.loads((FEAT / "hitter_r_rbi_coefs.json").read_text())
     slot = cur.mlbam_id.map(info.lineup_slot).fillna(6.5)
@@ -147,7 +164,13 @@ def project_hitters() -> pd.DataFrame:
     out = pd.DataFrame({"mlbam_id": cur.mlbam_id, "Name": cur.name, "Team_2026": cur.mlbam_id.map(info.team),
                         "Age_2027": (cur.age + 1).round(1), "Pos": cur.mlbam_id.map(info.primary_position),
                         "PA_2026": cur.pa, "career_PA": career})
-    out = out.join(pt.round({"PA": 0, "PA_p10": 0, "PA_p50": 0, "PA_p90": 0})).join(line.drop(columns=["PA"]))
+    out = out.join(pt.round({"PA": 0, "PA_p10": 0, "PA_p50": 0, "PA_p90": 0, "P_full_season": 2})).join(line.drop(columns=["PA"]))
+    out["platoon_role"] = pl.platoon_role.to_numpy()
+    out["pa_vs_lhp_share"] = pl.pal_share_next.round(3).to_numpy()
+    e = pl.pal_share_next.fillna(0.29)
+    sp = pl.split.fillna(0)
+    out["wOBA_vsR"] = (out.wOBA + e * sp).round(3)
+    out["wOBA_vsL"] = (out.wOBA - (1 - e) * sp).round(3)
     out["wOBA_p10"] = out.wOBA - 1.2816 * sigma
     out["wOBA_p90"] = out.wOBA + 1.2816 * sigma
     out["volatility_pctile"] = sigma.rank(pct=True).round(2)
@@ -324,7 +347,12 @@ def apply_injuries(df: pd.DataFrame, kind: str) -> pd.DataFrame:
     q_lo = np.array([ratios[g]["plan_q"][0] for g in grp])
     q_hi = np.array([ratios[g]["plan_q"][1] for g in grp])
     # Everyone not yet back from surgery uses the return model (season share = 1 if due by Opening Day).
-    returning_midseason = ((adj.avail[hit] < 1) | adj.pending[hit].astype(bool)).to_numpy()
+    # Hitters: only returns after Opening Day use the return-pace model (a hitter recovered over the
+    # winter is ready for spring). Pitchers not yet back from surgery still need a build-up.
+    if pitcher:
+        returning_midseason = ((adj.avail[hit] < 1) | adj.pending[hit].astype(bool)).to_numpy()
+    else:
+        returning_midseason = (adj.avail[hit] < 1).to_numpy()
     span = (healthy * adj.avail[hit]).to_numpy()
     target = np.where(returning_midseason, span * plan, df.loc[hit, vol])
     new_vol = np.minimum(target, adj.cap[hit])
@@ -395,7 +423,9 @@ def apply_rotation(df: pd.DataFrame) -> pd.DataFrame:
     # Headline = in-rotation workload only when a rotation spot is the likely outcome (>= 50%);
     # otherwise the expected value (out-of-rotation arms throw ~45 IP).
     p_rot = df.P_rotation.fillna(0).to_numpy()
-    target = np.where(p_rot >= 0.5, target, p_rot * target + (1 - p_rot) * 45)
+    ramp = np.clip((p_rot - 0.3) / 0.2, 0, 1)
+    expected = p_rot * target + (1 - p_rot) * 45
+    target = expected + ramp * (target - expected)
     sel = np.isin(grp, ["convert", "mixed"]) & (df.injury_note.fillna("").to_numpy() == "") & (ranks <= 9).to_numpy()
     f = np.where(sel, target / np.maximum(df.IP.to_numpy(), 0.1), 1.0)
     for col in ["IP", "TBF", "K", "BB", "HBP", "HR", "H", "ER", "QS", "W", "L", "IP_p50", "IP_p90"]:
@@ -404,6 +434,38 @@ def apply_rotation(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[sel, "GS"] = np.clip(df.loc[sel, "IP"] / 5.6, 0, 33)
     df.loc[sel, "P_full_season"] = df.loc[sel, "P_rotation"]
     return df
+
+
+def add_conversion_candidates(starters: pd.DataFrame, relievers: pd.DataFrame) -> pd.DataFrame:
+    """Relievers with a real chance to move into the rotation (the Jax route) also get a starter row.
+    Their starter IP mixes the converted workload with their relief workload, using the same
+    30-50% ramp as everyone else; most stay near their relief workload because conversion is rare."""
+    seasons = pd.read_parquet(FEAT / "pitcher_seasons.parquet")
+    ptf = pitcher_pt_frame(seasons)
+    cm = ConversionModel().fit(ptf, BASE)
+    now = ptf[ptf.season == BASE].set_index("mlbam_id").reindex(relievers.mlbam_id)
+    pr = cm.predict(now.reset_index()).set_index(relievers.index)
+    relievers["P_convert"] = pr.P_convert.round(3)
+    cand = relievers[(pr.P_convert >= 0.03) & ~relievers.mlbam_id.isin(starters.mlbam_id) & (relievers.free_agent == 0)
+                     & (relievers.injury_note.fillna("") == "")].copy()
+    if cand.empty:
+        return starters
+    p = pr.P_convert[cand.index].to_numpy()
+    conv_ip, rp_ip = pr.IP_if_converted[cand.index].to_numpy(), cand.IP.to_numpy()
+    expected = p * conv_ip + (1 - p) * rp_ip
+    ramp = np.clip((p - 0.3) / 0.2, 0, 1)
+    ip = expected + ramp * (conv_ip - expected)
+    f = ip / np.maximum(rp_ip, 1)
+    for c in ("K", "BB", "HBP", "HR", "H", "ER", "W", "L", "TBF"):
+        if c in cand:
+            cand[c] = cand[c] * f
+    cand["IP"], cand["GS"] = ip, p * conv_ip / 5.3
+    cand["IP_p10"], cand["IP_p50"], cand["IP_p90"] = rp_ip * 0.6, ip, conv_ip
+    cand["QS"], cand["P_rotation"], cand["role_2026"] = cand.GS * 0.35, p, "conversion"
+    cand["P_full_season"] = p
+    cand["SV"], cand["HLD"] = 0.0, 0.0
+    keep = [c for c in starters.columns if c in cand.columns]
+    return pd.concat([starters, cand[keep]], ignore_index=True)
 
 
 def apply_overrides(df: pd.DataFrame, kind: str) -> pd.DataFrame:
@@ -441,6 +503,8 @@ if __name__ == "__main__":
     p = apply_overrides(apply_rotation(apply_injuries(project_pitchers(), "pitchers")), "pitchers")
     p.round(4).to_csv(OUT / "2027_pitchers.csv", index=False)
     r = apply_overrides(apply_injuries(project_relievers(), "relievers"), "relievers")
+    p = add_conversion_candidates(p, r)
+    p.round(4).to_csv(OUT / "2027_pitchers.csv", index=False)
     r.round(4).to_csv(OUT / "2027_relievers.csv", index=False)
     print(f"hitters: {len(h)} ({h.focus.sum()} focus); pitchers: {len(p)} starters ({p.focus.sum()} focus); "
           f"{len(r)} relievers ({r.swingman.sum()} also starters)")

@@ -111,6 +111,7 @@ def hitter_seasons() -> pd.DataFrame:
     # IL, options, pedigree.
     s = s.merge(ctx.il_by_season(), on=keys, how="left")
     s[["il_days", "il_stints", "il_frac"]] = s[["il_days", "il_stints", "il_frac"]].fillna(0)
+    s["il_end_spell_days"] = s.get("il_end_spell_days", pd.Series(0, index=s.index)).fillna(0)
     for c in ("il_arm", "il_shoulder", "il_surgery", "il_at_season_end"):
         s[c] = s[c].fillna(False).astype(int)
     s = s.merge(ctx.options_used(), on=keys, how="left")
@@ -218,8 +219,13 @@ PITCHER_COUNTS = [
 
 def pitcher_seasons() -> pd.DataFrame:
     pg = pd.read_parquet(FEATURES / "pitcher_games.parquet")
+    # A start counts as a real start only if it went 3+ IP or 50+ pitches; openers' short starts
+    # (by design) are relief work. Official starts are kept as gs_official.
+    pg["gs_official"] = pg.is_sp
+    pg["opener_gs"] = ((pg.is_sp == 1) & (pg.outs <= 6) & (pg.pitches <= 40)).astype(int)
+    pg["is_sp"] = ((pg.is_sp == 1) & ((pg.outs >= 9) | (pg.pitches >= 50))).astype("int8")
     keys = ["mlbam_id", "season"]
-    s = pg.groupby(keys)[PITCHER_COUNTS].sum()
+    s = pg.groupby(keys)[PITCHER_COUNTS + ["gs_official", "opener_gs"]].sum()
     s["games"] = pg.groupby(keys).size()
     sp = pg[pg.is_sp == 1]
     s["sp_outs"] = sp.groupby(keys).outs.sum()
@@ -261,6 +267,7 @@ def pitcher_seasons() -> pd.DataFrame:
 
     s = s.merge(ctx.il_by_season(), on=keys, how="left")
     s[["il_days", "il_stints", "il_frac"]] = s[["il_days", "il_stints", "il_frac"]].fillna(0)
+    s["il_end_spell_days"] = s.get("il_end_spell_days", pd.Series(0, index=s.index)).fillna(0)
     for c in ("il_arm", "il_shoulder", "il_surgery", "il_at_season_end"):
         s[c] = s[c].fillna(False).astype(int)
     s = s.merge(ctx.options_used(), on=keys, how="left")

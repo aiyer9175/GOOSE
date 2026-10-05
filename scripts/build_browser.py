@@ -22,6 +22,7 @@ HIT_COLS = {
     "kpct": "K%", "bbpct": "BB%", "babip": "BABIP", "iso": "ISO", "vol": "volatility_pctile", "ptrisk": "pt_risk",
     "frag": "fragility", "opts": "options_left", "threat": "prospect_threat", "il": "il_days", "focus": "focus",
     "fa": "free_agent", "pah": "PA_healthy", "status": "status", "injury": "injury_note",
+    "role": "platoon_role", "palshare": "pa_vs_lhp_share", "wvr": "wOBA_vsR", "wvl": "wOBA_vsL", "pfull": "P_full_season",
 }
 PIT_COLS = {
     "id": "mlbam_id", "name": "Name", "team": "Team_2026", "age": "Age_2027", "throws": "Throws",
