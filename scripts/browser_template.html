@@ -155,6 +155,8 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
         <button id="tab-r" type="button" aria-pressed="false">Relievers</button>
         <button id="tab-t" type="button" aria-pressed="false">Teams</button>
         <button id="tab-l" type="button" aria-pressed="false">Leaders</button>
+        <button id="tab-f" type="button" aria-pressed="false">Fantasy</button>
+        <button id="tab-g" type="button" aria-pressed="false">League</button>
       </div>
       <select id="teamSel" aria-label="Team" hidden></select>
       <label class="toggle" for="focusOnly" id="focusWrap"><input id="focusOnly" type="checkbox"> <span id="focusLabel">Focus group only</span></label>
@@ -177,6 +179,7 @@ footer { color: var(--muted); font-size: 12.5px; display: grid; gap: 4px; max-wi
 
   <section class="view" id="teamView" hidden aria-label="Team projections"></section>
   <section class="view" id="leadView" hidden aria-label="Projected leaders"></section>
+  <section class="view" id="fantasyView" hidden aria-label="Fantasy values"></section>
 
   <footer>
     <div>Backtest 2022&ndash;2026 (projections made from prior-season data only): hitter wOBA error ties Steamer and beats ZiPS overall; trails Steamer by about 3% on hitters with 100&ndash;300 PA. Starters with 0&ndash;80 IP: K-BB% slightly better than Steamer, FIP slightly worse.</div>
@@ -217,6 +220,7 @@ const VIEWS = {
     defaultSort: ["woba", -1],
     cols: [
       { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.pos ?? ""} · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "bats", label: "Bats", cell: (r) => r.bats ?? "–" },
       { key: "pa", label: "PA", cell: (r) => f0(r.pa) },
       { key: "avg", label: "AVG/OBP/SLG", cell: (r) => `<span class="slash">${f3(r.avg)}/${f3(r.obp)}/${f3(r.slg)}</span>` },
       { key: "woba", label: "wOBA", cell: (r) => f3(r.woba) },
@@ -233,6 +237,7 @@ const VIEWS = {
     defaultSort: ["sv", -1],
     cols: [
       { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.throws ?? ""}HP · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "throws", label: "Throws", cell: (r) => r.throws ?? "–" },
       { key: "ip", label: "IP", cell: (r) => f0(r.ip) },
       { key: "sv", label: "SV", cell: (r) => f0(r.sv) },
       { key: "hld", label: "HLD", cell: (r) => f0(r.hld) },
@@ -249,6 +254,7 @@ const VIEWS = {
     defaultSort: ["fip", 1],
     cols: [
       { key: "name", label: "Player", cell: (r) => `<span class="pname">${r.name}</span><span class="pmeta">${r.team ?? ""} · ${r.throws ?? ""}HP · ${r.age?.toFixed(0) ?? ""}</span>` },
+      { key: "throws", label: "Throws", cell: (r) => r.throws ?? "–" },
       { key: "ip", label: "IP", cell: (r) => f0(r.ip) },
       { key: "gs", label: "GS", cell: (r) => f0(r.gs) },
       { key: "era", label: "ERA", cell: (r) => f2(r.era) },
@@ -363,7 +369,7 @@ function renderDetail(raw) {
   } else if (state.tab === "h") {
     $("detail").innerHTML = `
       <div><h2 class="dname">${r.name}</h2>
-        <div class="dmeta">${r.pos ?? ""} · ${r.team ?? ""} in 2026 · age ${r.age?.toFixed(1)} in 2027 · ${f0(r.pa26)} PA in 2026, ${f0(r.career)} career</div></div>
+        <div class="dmeta">${r.pos ?? ""} · bats ${({ L: "left", R: "right", S: "switch" })[r.bats] ?? "–"} · ${r.team ?? ""} in 2026 · age ${r.age?.toFixed(1)} in 2027 · ${f0(r.pa26)} PA in 2026, ${f0(r.career)} career</div></div>
       <div class="chips">${chips.join("")}</div>
       <div class="headline">
         <div class="big"><div class="v">${f3(r.woba)}</div><div class="l">wOBA</div></div>
@@ -488,15 +494,15 @@ function renderTeams() {
     </div>
     <div class="twocol">
       <div class="panel"><h3>Lineup and bench</h3>
-        ${tbl(["Player", "Pos", "PA", "AVG/OBP/SLG", "wOBA", "HR", "SB"], t.hit.slice(0, 16).map((r) =>
-          `<tr><td>${plink("h", r)}</td><td>${r.pos ?? ""}</td><td>${f0(r.pa)}</td><td>${f3(r.avg)}/${f3(r.obp)}/${f3(r.slg)}</td><td>${f3(r.woba)}</td><td>${f0(r.hr)}</td><td>${f0(r.sb)}</td></tr>`))}
+        ${tbl(["Player", "Pos", "Bats", "PA", "AVG/OBP/SLG", "wOBA", "HR", "SB"], t.hit.slice(0, 16).map((r) =>
+          `<tr><td>${plink("h", r)}</td><td>${r.pos ?? ""}</td><td>${r.bats ?? ""}</td><td>${f0(r.pa)}</td><td>${f3(r.avg)}/${f3(r.obp)}/${f3(r.slg)}</td><td>${f3(r.woba)}</td><td>${f0(r.hr)}</td><td>${f0(r.sb)}</td></tr>`))}
       </div>
       <div class="panel"><h3>Rotation pecking order</h3>
-        ${tbl(["#", "Pitcher", "IP", "ERA", "FIP", "K", "Spot"], t.rot.slice(0, 8).map((r) =>
-          `<tr><td class="rk">${f0(r.rank)}</td><td>${plink("p", r)}</td><td>${f0(r.ip)}</td><td>${f2(r.era)}</td><td>${f2(r.fip)}</td><td>${f0(r.k)}</td><td>${r.prot != null ? pct(r.prot, 0) : "–"}</td></tr>`))}
+        ${tbl(["#", "Pitcher", "T", "IP", "ERA", "FIP", "K", "Spot"], t.rot.slice(0, 8).map((r) =>
+          `<tr><td class="rk">${f0(r.rank)}</td><td>${plink("p", r)}</td><td>${r.throws ?? ""}</td><td>${f0(r.ip)}</td><td>${f2(r.era)}</td><td>${f2(r.fip)}</td><td>${f0(r.k)}</td><td>${r.prot != null ? pct(r.prot, 0) : "–"}</td></tr>`))}
         <h3>Bullpen</h3>
-        ${tbl(["Reliever", "IP", "SV", "HLD", "ERA", "K%", "SV share"], t.pen.slice(0, 10).map((r) =>
-          `<tr><td>${plink("r", r)}</td><td>${f0(r.ip)}</td><td>${f0(r.sv)}</td><td>${f0(r.hld)}</td><td>${f2(r.era)}</td><td>${pct(r.kpct)}</td><td>${r.svshare != null ? pct(r.svshare, 0) : "–"}</td></tr>`))}
+        ${tbl(["Reliever", "T", "IP", "SV", "HLD", "ERA", "K%", "SV share"], t.pen.slice(0, 10).map((r) =>
+          `<tr><td>${plink("r", r)}</td><td>${r.throws ?? ""}</td><td>${f0(r.ip)}</td><td>${f0(r.sv)}</td><td>${f0(r.hld)}</td><td>${f2(r.era)}</td><td>${pct(r.kpct)}</td><td>${r.svshare != null ? pct(r.svshare, 0) : "–"}</td></tr>`))}
       </div>
     </div>`;
 }
@@ -536,12 +542,14 @@ function openPlayer(tab, id) {
 
 function render() {
   const players = ["h", "p", "r"].includes(state.tab);
-  ["h", "p", "r", "t", "l"].forEach((t) => $("tab-" + t).setAttribute("aria-pressed", state.tab === t));
+  ["h", "p", "r", "t", "l", "f", "g"].forEach((t) => $("tab-" + t).setAttribute("aria-pressed", state.tab === t));
   $("playerView").hidden = !players;
   $("teamView").hidden = state.tab !== "t";
   $("leadView").hidden = state.tab !== "l";
+  $("fantasyView").hidden = state.tab !== "f" && state.tab !== "g";
   $("searchWrap").hidden = !players; $("focusWrap").hidden = !players; $("minVol").hidden = !players;
-  $("teamSel").hidden = state.tab !== "t"; $("faFilter").hidden = state.tab === "t";
+  $("teamSel").hidden = state.tab !== "t"; $("faFilter").hidden = state.tab === "t" || state.tab === "f" || state.tab === "g";
+  if (state.tab === "f" || state.tab === "g") { renderFantasy(); try { localStorage.setItem("goose-browser", JSON.stringify({ tab: state.tab })); } catch (e) {} return; }
   if (state.tab === "t") { renderTeams(); return; }
   if (state.tab === "l") { renderLeaders(); return; }
   renderControls();
@@ -565,6 +573,8 @@ $("tab-p").addEventListener("click", () => { state.tab = "p"; state.min = 0; ren
 $("tab-r").addEventListener("click", () => { state.tab = "r"; state.min = 0; render(); });
 $("tab-t").addEventListener("click", () => { state.tab = "t"; render(); });
 $("tab-l").addEventListener("click", () => { state.tab = "l"; render(); });
+$("tab-f").addEventListener("click", () => { state.tab = "f"; render(); });
+$("tab-g").addEventListener("click", () => { state.tab = "g"; render(); });
 $("teamSel").innerHTML = teams().map((t) => `<option value="${t}">${t}</option>`).join("");
 state.team = teams().includes("TB") ? "TB" : teams()[0];
 state.teamSort = ["woba", -1];
@@ -592,7 +602,7 @@ $("faFilter").addEventListener("change", (e) => { state.fa = e.target.value; sta
 $("thead").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-key]"); if (!b) return;
   const key = b.dataset.key; const [k, d] = state.sort[state.tab];
-  state.sort[state.tab] = [key, k === key ? -d : (key === "name" || ["era", "fip", "whip", "frag"].includes(key) ? 1 : -1)];
+  state.sort[state.tab] = [key, k === key ? -d : (["name", "bats", "throws"].includes(key) || ["era", "fip", "whip", "frag"].includes(key) ? 1 : -1)];
   renderTable();
 });
 $("tbody").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-id]"); if (tr) selectRow(Number(tr.dataset.id)); });
@@ -602,5 +612,5 @@ $("tbody").addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown" && tr.nextElementSibling) { tr.nextElementSibling.focus(); e.preventDefault(); }
   if (e.key === "ArrowUp" && tr.previousElementSibling) { tr.previousElementSibling.focus(); e.preventDefault(); }
 });
-render();
 </script>
+<!--__FANTASY__-->

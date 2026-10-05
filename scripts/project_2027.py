@@ -420,6 +420,7 @@ def apply_rotation(df: pd.DataFrame) -> pd.DataFrame:
     healthy = np.minimum(df.IP_healthy_center.fillna(0).to_numpy(), high + 10)
     target = np.where(grp == "mixed", np.maximum(target, healthy), target)
     target = np.clip(target, 0, 200)
+    full = target.copy()
     # Headline = in-rotation workload only when a rotation spot is the likely outcome (>= 50%);
     # otherwise the expected value (out-of-rotation arms throw ~45 IP).
     p_rot = df.P_rotation.fillna(0).to_numpy()
@@ -431,6 +432,11 @@ def apply_rotation(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["IP", "TBF", "K", "BB", "HBP", "HR", "H", "ER", "QS", "W", "L", "IP_p50", "IP_p90"]:
         if col in df:
             df.loc[sel, col] = (df[col].to_numpy() * f)[sel]
+    # Scaling the old range by the same factor can push P90 far past any plausible workload (it was
+    # built around a part-time projection); the ceiling is the full in-rotation workload.
+    cap = np.maximum(df.IP.to_numpy(), full)
+    df.loc[sel, "IP_p90"] = np.minimum(df.IP_p90.to_numpy(), cap)[sel]
+    df.loc[sel, "IP_p50"] = np.minimum(df.IP_p50.to_numpy(), cap)[sel]
     df.loc[sel, "GS"] = np.clip(df.loc[sel, "IP"] / 5.6, 0, 33)
     df.loc[sel, "P_full_season"] = df.loc[sel, "P_rotation"]
     return df

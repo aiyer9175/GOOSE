@@ -1,0 +1,947 @@
+<style>
+.fset { display: grid; gap: 14px; }
+.frow { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; }
+.fld { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.fld input[type="number"] { font: inherit; font-size: 14px; width: 4.6em; padding: 7px 8px; border: 1px solid var(--rule); border-radius: 7px; background: var(--surface); color: var(--ink); }
+.fld select { padding: 7px 8px; }
+.fld.wide select { min-width: 15em; }
+.catbox { display: flex; flex-wrap: wrap; gap: 6px; }
+.catbox label { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 4px 9px; border: 1px solid var(--rule); border-radius: 999px; cursor: pointer; user-select: none; }
+.catbox label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.catbox input { accent-color: var(--accent); margin: 0; }
+.ptsgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+.ptsgrid .fld input { width: 100%; }
+details.fdet { border-top: 1px solid var(--rule); padding-top: 10px; }
+details.fdet > summary { cursor: pointer; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+details.fdet[open] > summary { margin-bottom: 10px; }
+.fmain { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 960px) { .fmain { grid-template-columns: 1fr; } }
+.dol { font-family: var(--display); font-weight: 600; font-size: 17px; }
+.dol.neg { color: var(--muted); }
+.rng { color: var(--muted); font-size: 12px; }
+.poschips { display: inline-flex; gap: 3px; margin-left: 6px; }
+.poschips span { font-size: 10.5px; font-weight: 600; padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--muted); }
+tr.drafted td { opacity: 0.45; }
+tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.zrow { display: grid; grid-template-columns: 4.2em 1fr 3.4em; gap: 8px; align-items: center; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.zbar { position: relative; height: 12px; background: var(--surface-2); border-radius: 3px; }
+.zbar i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.zbar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.flags { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.flag { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); }
+.flag.alert { border-color: var(--bad); color: var(--bad); }
+.flag.on { border-color: var(--accent); color: var(--accent); }
+.btn { font: inherit; font-weight: 500; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+textarea.paste { font: inherit; font-size: 13px; width: 100%; min-height: 90px; padding: 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; border-bottom: 1px solid var(--rule); padding: 4px 0; }
+.kv span { color: var(--muted); }
+</style>
+<script>
+/* ---------- Fantasy values ----------
+   Everything runs in the page so any league format re-prices instantly.
+   Categories: z-scores against the drafted pool (rate stats as marginal contributions), positional
+   replacement, then auction dollars. Points: totals above replacement, or (games/innings-capped
+   leagues like Ottoneu) points per game / per inning above replacement times volume.
+   GOOSE extras: dollar ranges from the playing-time and talent distributions, a risk dial,
+   healthy value, and a live draft tracker with inflation. */
+
+const r0 = (v) => v || 0;
+const HSTAT = (r) => {
+  const s = { pa: r0(r.pa), ab: r0(r.ab), h: r0(r.h), b1: r0(r.b1), b2: r0(r.b2), b3: r0(r.b3), hr: r0(r.hr), r: r0(r.r),
+    rbi: r0(r.rbi), sb: r0(r.sb), cs: r0(r.cs), bb: r0(r.bb), k: r0(r.k), hbp: r0(r.hbp), sf: r0(r.sf), g: r0(r.g) };
+  return s;
+};
+const tb = (s) => s.b1 + 2 * s.b2 + 3 * s.b3 + 4 * s.hr;
+
+// Category catalog. c: counting (neg = fewer is better); num/den: ratio stats.
+const HCATS = [
+  { k: "R", f: (s) => s.r }, { k: "HR", f: (s) => s.hr }, { k: "RBI", f: (s) => s.rbi }, { k: "SB", f: (s) => s.sb },
+  { k: "NSB", label: "Net SB", f: (s) => s.sb - s.cs }, { k: "AVG", num: (s) => s.h, den: (s) => s.ab, d: 3 },
+  { k: "OBP", num: (s) => s.h + s.bb + s.hbp, den: (s) => s.ab + s.bb + s.hbp + s.sf, d: 3 },
+  { k: "SLG", num: tb, den: (s) => s.ab, d: 3 },
+  { k: "OPS", ops: true, d: 3 }, { k: "ISO", num: (s) => tb(s) - s.h, den: (s) => s.ab, d: 3 },
+  { k: "H", f: (s) => s.h }, { k: "1B", f: (s) => s.b1 }, { k: "2B", f: (s) => s.b2 }, { k: "3B", f: (s) => s.b3 },
+  { k: "XBH", f: (s) => s.b2 + s.b3 + s.hr }, { k: "TB", f: tb }, { k: "R+RBI", f: (s) => s.r + s.rbi },
+  { k: "BB", f: (s) => s.bb }, { k: "HBP", f: (s) => s.hbp }, { k: "K", label: "K (bat)", f: (s) => s.k, neg: true },
+  { k: "CS", f: (s) => s.cs, neg: true }, { k: "PA", f: (s) => s.pa }, { k: "AB", f: (s) => s.ab },
+];
+const PCATS = [
+  { k: "W", f: (s) => s.w }, { k: "SV", f: (s) => s.sv }, { k: "K", f: (s) => s.k },
+  { k: "ERA", num: (s) => 9 * s.er, den: (s) => s.ip, neg: true, d: 2 }, { k: "WHIP", num: (s) => s.h + s.bb, den: (s) => s.ip, neg: true, d: 2 },
+  { k: "QS", f: (s) => s.qs }, { k: "HLD", f: (s) => s.hld }, { k: "SVHD", label: "SV+HLD", f: (s) => s.sv + s.hld },
+  { k: "W+QS", f: (s) => s.w + s.qs }, { k: "L", f: (s) => s.l, neg: true }, { k: "IP", f: (s) => s.ip },
+  { k: "K/9", num: (s) => 9 * s.k, den: (s) => s.ip, d: 2 }, { k: "BB/9", num: (s) => 9 * s.bb, den: (s) => s.ip, neg: true, d: 2 },
+  { k: "HR/9", num: (s) => 9 * s.hr, den: (s) => s.ip, neg: true, d: 2 }, { k: "K/BB", num: (s) => s.k, den: (s) => s.bb, d: 2 },
+  { k: "K%", num: (s) => s.k, den: (s) => s.tbf, d: 3, pct: true }, { k: "K-BB%", num: (s) => s.k - s.bb, den: (s) => s.tbf, d: 3, pct: true },
+  { k: "H", label: "H (allowed)", f: (s) => s.h, neg: true }, { k: "BB", label: "BB (allowed)", f: (s) => s.bb, neg: true },
+  { k: "HRA", label: "HR (allowed)", f: (s) => s.hr, neg: true }, { k: "GS", f: (s) => s.gs },
+];
+const HPTS = [["pa", "PA"], ["ab", "AB"], ["h", "H"], ["b1", "1B"], ["b2", "2B"], ["b3", "3B"], ["hr", "HR"], ["tb", "TB"],
+  ["r", "R"], ["rbi", "RBI"], ["bb", "BB"], ["hbp", "HBP"], ["k", "K"], ["sb", "SB"], ["cs", "CS"]];
+const PPTS = [["ip", "IP"], ["k", "K"], ["h", "H"], ["bb", "BB"], ["hbp", "HBP"], ["hr", "HR"], ["er", "ER"], ["w", "W"],
+  ["l", "L"], ["sv", "SV"], ["hld", "HLD"], ["qs", "QS"], ["gs", "GS"]];
+const ptsOf = (s, w, pit) => (pit ? PPTS : HPTS).reduce((a, [k]) => a + (w[k] || 0) * (k === "tb" ? tb(s) : (s[k] || 0)), 0);
+
+const SLOTS_H = ["C", "1B", "2B", "3B", "SS", "OF", "MI", "CI", "UTIL"];
+const SLOTS_P = ["SP", "RP", "P"];
+const OTTO_H = { ab: -1, h: 5.6, b2: 2.9, b3: 5.7, hr: 9.4, bb: 3, hbp: 3, sb: 1.9, cs: -2.8 };
+const OTTO_ROSTER = { teams: 12, budget: 400, minBid: 1, bench: 18, ipCap: 1500, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 5, MI: 1, CI: 0, UTIL: 1, SP: 5, RP: 5, P: 0 };
+// Platform eligibility rules for a preseason (previous-season) draft. g = games at the position,
+// gs = starts there, pct = share of his games (with a games floor); pitchers: sp = starts, rp = relief apps.
+const ELIG_RULES = {
+  yahoo: { label: "Yahoo (5 starts or 10 G; SP 3 GS, RP 5)", gThr: 10, gsThr: 5, spThr: 3, rpThr: 5 },
+  espn: { label: "ESPN (20 G or 25% of games; SP 5 GS, RP 8)", gThr: 20, pct: 0.25, pctMin: 5, spThr: 5, rpThr: 8 },
+  cbs: { label: "CBS (20 G, keeps primary position)", gThr: 20, primary: true, spThr: 5, rpThr: 5 },
+  nfbc: { label: "NFBC (20 G)", gThr: 20, spThr: 5, rpThr: 5 },
+  fantrax: { label: "Fantrax default (20 G, else most-played)", gThr: 20, mostPlayed: true, spThr: 5, rpThr: 5 },
+  ottoneu: { label: "Ottoneu (10 G or 5 starts; SP 5 GS, RP 5)", gThr: 10, gsThr: 5, spThr: 5, rpThr: 5 },
+};
+const eligOf = (k) => ({ rule: k, gsThr: 999, both: false, ...structuredClone(ELIG_RULES[k]) });
+const OTTO_ELIG = eligOf("ottoneu");
+const STD_ROSTER = { teams: 12, budget: 260, minBid: 1, bench: 6, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 5, MI: 1, CI: 1, UTIL: 1, SP: 0, RP: 0, P: 9 };
+const PRESETS = {
+  roto5: { label: "Roto 5x5 (AVG)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"], roster: STD_ROSTER, elig: eligOf("nfbc") },
+  rotoObp: { label: "Roto 5x5 (OBP)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "OBP"], pc: ["W", "SV", "K", "ERA", "WHIP"], roster: STD_ROSTER, elig: eligOf("nfbc") },
+  nfbc: { label: "NFBC auction (15-team 5x5)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"],
+    roster: { ...STD_ROSTER, teams: 15, C: 2, bench: 7 }, elig: eligOf("nfbc"), adp: "aav" },
+  nfbcDC: { label: "NFBC Draft Champions (draft & hold, 50 rounds)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"],
+    roster: { ...STD_ROSTER, C: 2, bench: 27, waivers: "none", benchP: 0.55 }, elig: eligOf("nfbc"), adp: "dc" },
+  nfbcOC: { label: "NFBC Online Championship (12-team 5x5)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"],
+    roster: { ...STD_ROSTER, C: 2, bench: 7 }, elig: eligOf("nfbc"), adp: "oc" },
+  six: { label: "6x6 (OPS, QS, SV+HLD)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG", "OPS"], pc: ["QS", "SVHD", "K", "ERA", "WHIP", "K/9"], roster: STD_ROSTER, elig: eligOf("nfbc") },
+  h2hYahoo: { label: "Yahoo H2H categories", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"],
+    roster: { teams: 12, budget: 200, minBid: 1, bench: 5, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 3, MI: 0, CI: 0, UTIL: 2, SP: 2, RP: 2, P: 4 }, elig: eligOf("yahoo") },
+  espnCats: { label: "ESPN H2H categories (6x6)", mode: "cats", hc: ["R", "HR", "TB", "RBI", "SB", "OBP"], pc: ["K", "W", "SVHD", "ERA", "WHIP", "QS"],
+    roster: { teams: 10, budget: 260, minBid: 1, bench: 8, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 3, MI: 0, CI: 0, UTIL: 1, SP: 0, RP: 0, P: 7 }, elig: eligOf("espn") },
+  ottoFg: { label: "Ottoneu FanGraphs Points", mode: "pts", rate: true, hw: OTTO_H,
+    pw: { ip: 7.4, k: 2, h: -2.6, bb: -3, hbp: -3, hr: -12.3, sv: 5, hld: 4 }, roster: OTTO_ROSTER, elig: OTTO_ELIG },
+  ottoSabr: { label: "Ottoneu SABR Points", mode: "pts", rate: true, hw: OTTO_H,
+    pw: { ip: 5, k: 2, bb: -3, hbp: -3, hr: -13, sv: 5, hld: 4 }, roster: OTTO_ROSTER, elig: OTTO_ELIG },
+  ottoOld: { label: "Ottoneu Old School (5x5)", mode: "cats", hc: ["R", "HR", "RBI", "SB", "AVG"], pc: ["W", "SV", "K", "ERA", "WHIP"], roster: OTTO_ROSTER, elig: OTTO_ELIG },
+  ottoClassic: { label: "Ottoneu Classic (4x4)", mode: "cats", hc: ["R", "HR", "OBP", "SLG"], pc: ["K", "ERA", "WHIP", "HR/9"], roster: OTTO_ROSTER, elig: OTTO_ELIG },
+  espnPts: { label: "ESPN points", mode: "pts", rate: false, hw: { tb: 1, r: 1, rbi: 1, bb: 1, k: -1, sb: 1 },
+    pw: { ip: 3, h: -1, er: -2, bb: -1, k: 1, w: 5, l: -2, sv: 5, hld: 2 },
+    roster: { teams: 10, budget: 260, minBid: 1, bench: 8, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 3, MI: 0, CI: 0, UTIL: 1, SP: 0, RP: 0, P: 7 }, elig: eligOf("espn") },
+  yahooPts: { label: "Yahoo points", mode: "pts", rate: false, hw: { b1: 2.6, b2: 5.2, b3: 7.8, hr: 10.4, r: 1.9, rbi: 1.9, bb: 2.6, hbp: 2.6, sb: 4.2 },
+    pw: { ip: 3, w: 8, sv: 8, k: 3, er: -3, bb: -1.3, h: -1.3, hbp: -1.3 },
+    roster: { teams: 12, budget: 200, minBid: 1, bench: 5, C: 1, "1B": 1, "2B": 1, "3B": 1, SS: 1, OF: 3, MI: 0, CI: 0, UTIL: 2, SP: 2, RP: 2, P: 4 }, elig: eligOf("yahoo") },
+};
+
+const FSTATE = (() => {
+  const d = { preset: "roto5", custom: false, ...structuredClone(PRESETS.roto5), hw: {}, pw: {}, split: "manual", splitPct: 67, ohtani: "both", adp: "all", risk: 0,
+    show: "all", pos: "", q: "", hideDrafted: false, drafted: {}, sort: ["val", -1], sel: null };
+  try { const s = JSON.parse(localStorage.getItem("goose-fantasy") || "null"); if (s) Object.assign(d, s); } catch (e) {}
+  d.q = ""; d.sel = null;
+  return d;
+})();
+const fsave = () => { try { const { q, sel, ...keep } = FSTATE; localStorage.setItem("goose-fantasy", JSON.stringify(keep)); } catch (e) {} };
+
+function applyPreset(key) {
+  const p = structuredClone(PRESETS[key]);
+  Object.assign(FSTATE, { preset: key, custom: false, mode: p.mode, rate: !!p.rate, hc: p.hc || FSTATE.hc, pc: p.pc || FSTATE.pc,
+    hw: p.hw || FSTATE.hw, pw: p.pw || FSTATE.pw, roster: p.roster, elig: p.elig,
+    // Category leagues: z-scores over-reward the side with more roster slots, so default to the
+    // market's ~67/33 hitter split. Points share one currency, so the auto split is used.
+    split: p.mode === "cats" ? "manual" : "auto", splitPct: 67,
+    ohtani: key.startsWith("yahoo") || key === "h2hYahoo" ? "two" : "both", adp: p.adp || "all" });
+}
+if (!FSTATE.roster) applyPreset("roto5");
+
+/* ---------- player pool ---------- */
+function eligible(r) {
+  const e = DATA.elig[String(r.id)] || {};
+  const E = FSTATE.elig, { gThr, both } = E, gsThr = E.gsThr ?? 999;
+  const FIELD = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"];
+  const tot = (i) => FIELD.reduce((a, p) => a + (e[p] ? e[p][i] : 0), 0);
+  const T = [tot(0), 0, tot(2)];
+  const okYr = (v, i) => v[i] >= gThr || v[i + 1] >= gsThr || (E.pct && v[i] >= (E.pctMin ?? 5) && v[i] >= E.pct * T[i]);
+  const ok = (v) => v && (okYr(v, 2) || (both && okYr(v, 0)));
+  const pos = ["C", "1B", "2B", "3B", "SS", "OF"].filter((p) => ok(e[p]));
+  const asPos = (p) => ["LF", "CF", "RF"].includes(p) ? "OF" : p;
+  if (E.primary && ["C", "1B", "2B", "3B", "SS", "OF"].includes(asPos(r.pos)) && !pos.includes(asPos(r.pos))) pos.push(asPos(r.pos));
+  if (E.mostPlayed && !pos.length) {
+    const top = ["C", "1B", "2B", "3B", "SS", "OF", "DH"].filter((p) => e[p]).sort((a, b) => e[b][2] - e[a][2])[0];
+    if (top && top !== "DH" && e[top][2] > 0) pos.push(top);
+  }
+  // No qualifying position: prospects (no MLB games anywhere) keep their listed position; others are UTIL only.
+  const anyGames = Object.values(e).some((v) => v[0] + v[2] > 0);
+  const prim = ["LF", "CF", "RF"].includes(r.pos) ? "OF" : r.pos;
+  if (!pos.length && !anyGames && ["C", "1B", "2B", "3B", "SS", "OF"].includes(prim)) pos.push(prim);
+  return pos;
+}
+function hitterPool() {
+  return DATA.hitters.filter((r) => (r.pa || 0) > 0).map((r) => {
+    const pos = eligible(r);
+    return { key: "h" + r.id, id: r.id, tab: "h", pit: false, r, s: HSTAT(r), pos, slots: [...pos, ...(pos.some((p) => p === "2B" || p === "SS") ? ["MI"] : []),
+      ...(pos.some((p) => p === "1B" || p === "3B") ? ["CI"] : []), "UTIL"], vol: r0(r.g) };
+  });
+}
+function pitcherPool() {
+  const out = new Map();
+  for (const r of DATA.pitchers) {
+    if (r.role === "conversion") continue;
+    out.set(r.id, { key: "p" + r.id, id: r.id, tab: "p", pit: true, r, sp: true, rp: false });
+  }
+  for (const r of DATA.relievers) {
+    const o = out.get(r.id);
+    if (o) { o.rp = true; o.rr = r; continue; }
+    out.set(r.id, { key: "p" + r.id, id: r.id, tab: "r", pit: true, r, sp: false, rp: true });
+  }
+  return [...out.values()].filter((o) => (o.r.ip || 0) > 0).map((o) => {
+    const r = o.r;
+    o.s = { ip: r0(r.ip), k: r0(r.k), bb: r0(r.bb), hbp: r0(r.hbp), h: r0(r.h), hr: r0(r.hr), er: r0(r.er), w: r0(r.w), l: r0(r.l),
+      sv: r0(r.sv), hld: r0(r.hld), qs: r0(r.qs), gs: r0(r.gs), tbf: r0(r.tbf) };
+    // Platform eligibility from official appearances: SP with enough starts, RP with enough relief
+    // outings (current season, optionally the one before). Pitchers with no MLB appearances use
+    // their projected role.
+    const e = DATA.pelig?.[String(o.id)], E = FSTATE.elig, sp = E.spThr ?? 5, rp = E.rpThr ?? 5;
+    if (e && e[2] + e[3] + (E.both ? e[0] + e[1] : 0) > 0) {
+      o.projSp = o.sp; o.projRp = o.rp;
+      o.sp = e[2] >= sp || (E.both && e[0] >= sp);
+      o.rp = e[3] >= rp || (E.both && e[1] >= rp);
+      if (!o.sp && !o.rp) { o.sp = o.projSp; o.rp = o.projRp; }
+    }
+    o.pos = [o.sp && "SP", o.rp && "RP"].filter(Boolean);
+    o.slots = [...o.pos, "P"];
+    o.vol = o.s.ip;
+    return o;
+  });
+}
+
+/* ---------- scenarios: floor / ceiling / healthy ---------- */
+function scenario(o, which) {
+  const r = o.r, s = { ...o.s };
+  if (!o.pit) {
+    const base = r.pa || 1;
+    const pa = which === "lo" ? r.pa10 : which === "hi" ? Math.min(r.pa90, 720) : r.pah;
+    const f = pa != null ? pa / base : 1;
+    const wq = which === "lo" ? r.woba10 : which === "hi" ? r.woba90 : r.woba;
+    const q = r.woba && wq ? 1 + 0.5 * (wq / r.woba - 1) : 1;
+    for (const k in s) s[k] *= f;
+    for (const k of ["h", "b1", "b2", "b3", "hr", "bb", "hbp", "r", "rbi"]) s[k] *= q;
+    return s;
+  }
+  const ip = which === "lo" ? r.ip10 : which === "hi" ? r.ip90 : (r.iph ?? r.ip);
+  const f = ip != null && r.ip ? ip / r.ip : 1;
+  for (const k in s) s[k] *= f;
+  const rr = o.rr || (o.rp ? r : null);
+  if (rr && rr.sv10 != null && which !== "healthy") s.sv = which === "lo" ? rr.sv10 : rr.sv90;
+  return s;
+}
+
+/* ---------- valuation ---------- */
+function catList(pit) {
+  const keys = pit ? FSTATE.pc : FSTATE.hc;
+  return (pit ? PCATS : HCATS).filter((c) => keys.includes(c.k));
+}
+function baseline(pool, pit) {
+  const b = {};
+  for (const c of catList(pit)) {
+    if (c.ops) {
+      const n1 = pool.reduce((a, o) => a + o.s.h + o.s.bb + o.s.hbp, 0), d1 = pool.reduce((a, o) => a + o.s.ab + o.s.bb + o.s.hbp + o.s.sf, 0);
+      const n2 = pool.reduce((a, o) => a + tb(o.s), 0), d2 = pool.reduce((a, o) => a + o.s.ab, 0);
+      b[c.k] = { obp: n1 / d1, slg: n2 / d2 };
+    } else if (c.num) {
+      b[c.k] = { rate: pool.reduce((a, o) => a + c.num(o.s), 0) / Math.max(1e-9, pool.reduce((a, o) => a + c.den(o.s), 0)) };
+    } else b[c.k] = {};
+  }
+  for (const c of catList(pit)) {
+    const xs = pool.map((o) => contrib(c, o.s, b));
+    const m = xs.reduce((a, x) => a + x, 0) / xs.length;
+    b[c.k].mean = m;
+    b[c.k].sd = Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / xs.length) || 1;
+  }
+  return b;
+}
+function contrib(c, s, b) {
+  const sg = c.neg ? -1 : 1;
+  if (c.ops) {
+    const pa = s.ab + s.bb + s.hbp + s.sf;
+    return (s.h + s.bb + s.hbp - b[c.k].obp * pa) + (tb(s) - b[c.k].slg * s.ab);
+  }
+  if (c.num) return sg * (c.num(s) - b[c.k].rate * c.den(s));
+  return sg * c.f(s);
+}
+function zParts(s, pit, b) {
+  return catList(pit).map((c) => [c.k, (contrib(c, s, b) - b[c.k].mean) / b[c.k].sd]);
+}
+// raw value for ranking; for rate mode, the per-game / per-inning points rate
+function rawVal(s, pit, b, vol) {
+  if (FSTATE.mode === "cats") return zParts(s, pit, b).reduce((a, [, z]) => a + z, 0);
+  const p = ptsOf(s, pit ? FSTATE.pw : FSTATE.hw, pit);
+  return FSTATE.rate ? (vol > 0 ? p / vol : 0) : p;
+}
+const volOf = (o, s) => (o.pit ? s.ip : (o.s.g ? o.s.g * (s.pa / Math.max(1, o.s.pa)) : 0));
+
+// Capacity per slot. Count leagues: one player per slot. Capped leagues (points per game / per IP):
+// slots hold volume, so injuries and off days pull more players into the pool. Hitter slots hold
+// 162 games; pitchers share the innings cap, with relief slots holding ~70 IP each and starter
+// (or generic P) slots splitting the rest. With Ottoneu's 1,500 IP that is ~1,150 starter innings
+// per team, i.e. 7-8 starters' worth, not 5.
+const RP_SLOT_IP = 70;
+// Draft-and-hold / best ball (no waiver wire): bench players are the only source of replacement
+// stats, so the whole roster is the pool. Bench spots become extra UTIL / P slots (benchP = pitcher
+// share of the bench), which lowers replacement and rewards volume: innings you can't find later.
+const benchSlots = (pit, R) => R.waivers === "none" ? Math.round((R.bench || 0) * (pit ? R.benchP ?? 0.5 : 1 - (R.benchP ?? 0.5))) : 0;
+function capacity(pit, R) {
+  const cap = {};
+  if (!FSTATE.rate) {
+    (pit ? SLOTS_P : SLOTS_H).forEach((k) => (cap[k] = R.teams * (R[k] || 0)));
+    cap[pit ? "P" : "UTIL"] += R.teams * benchSlots(pit, R);
+    return cap;
+  }
+  if (!pit) { SLOTS_H.forEach((k) => (cap[k] = R.teams * (R[k] || 0) * 162)); return cap; }
+  const ipCap = R.ipCap || 1500, nSp = (R.SP || 0) + (R.P || 0);
+  const rpIp = Math.min((R.RP || 0) * RP_SLOT_IP, ipCap);
+  const per = nSp ? (ipCap - rpIp) / nSp : 0;
+  cap.SP = R.teams * (R.SP || 0) * per; cap.P = R.teams * (R.P || 0) * per; cap.RP = R.teams * rpIp;
+  return cap;
+}
+function assign(pool, pit, R) {
+  const slots = capacity(pit, R);
+  const order = pit ? ["SP", "RP", "P"] : ["C", "SS", "2B", "3B", "OF", "1B", "MI", "CI", "UTIL"];
+  const sorted = [...pool].sort((a, b) => b.order - a.order);
+  const taken = new Set();
+  for (const o of sorted) {
+    let pref = order.filter((k) => o.slots.includes(k));
+    if (pit && o.sp && o.rp) pref = o.tab === "r" ? ["RP", "SP", "P"] : ["SP", "RP", "P"];
+    const k = pref.find((k) => slots[k] > 0);
+    if (k) { slots[k] -= FSTATE.rate ? Math.max(o.vol, 1) : 1; o.slot = k; taken.add(o.key); } else o.slot = null;
+    if ([...Object.values(slots)].every((v) => v <= 0)) break;
+  }
+  pool.forEach((o) => { if (!taken.has(o.key)) o.slot = null; });
+  // Replacement: average raw value of the next few unassigned players eligible at each position.
+  const repl = {};
+  const n = Math.max(2, Math.round(R.teams / 4));
+  const minVol = pit ? 25 : 40;
+  for (const k of pit ? ["SP", "RP", "P"] : ["C", "1B", "2B", "3B", "SS", "OF", "UTIL"]) {
+    const cand = sorted.filter((o) => !o.slot && o.slots.includes(k) && (!FSTATE.rate || o.vol >= minVol)).slice(0, n);
+    repl[k] = cand.length ? cand.reduce((a, o) => a + o.raw, 0) / cand.length : 0;
+  }
+  return repl;
+}
+function parOf(o, raw, vol, repl) {
+  const R = FSTATE.roster;
+  let keys;
+  if (o.pit) { keys = o.pos.filter((k) => (R[k] || 0) > 0); if ((R.P || 0) > 0 || benchSlots(true, R)) keys.push("P"); }
+  else { keys = o.pos.filter((k) => (R[k] || 0) > 0); if (!keys.length) keys = ["UTIL"]; }
+  if (!keys.length) keys = [o.pit ? "P" : "UTIL"];
+  const r = Math.min(...keys.map((k) => repl[k] ?? 0));
+  return FSTATE.rate ? (raw - r) * vol : raw - r;
+}
+
+let FV = null;
+function valuate() {
+  const R = FSTATE.roster;
+  const groups = { h: hitterPool(), p: pitcherPool() };
+  const res = {};
+  for (const [g, pool] of Object.entries(groups)) {
+    const pit = g === "p";
+    const nSlots = R.teams * ((pit ? SLOTS_P : SLOTS_H).reduce((a, k) => a + (R[k] || 0), 0) + benchSlots(pit, R));
+    pool.forEach((o) => (o.order = o.vol));
+    let b = null, repl = {};
+    for (let it = 0; it < 4; it++) {
+      const top = [...pool].sort((x, y) => y.order - x.order).slice(0, Math.max(nSlots, 1));
+      if (FSTATE.mode === "cats") b = baseline(top, pit);
+      pool.forEach((o) => { o.raw = rawVal(o.s, pit, b, o.vol); });
+      // Capped leagues fill their games / innings with the best per-game or per-inning producers
+      // (among players with a real workload); count leagues rank by value above replacement.
+      const minVol = pit ? 25 : 40;
+      const ord = (o) => FSTATE.rate ? (o.vol >= minVol ? o.raw : o.raw - 1e6) : o.par;
+      if (it === 0) pool.forEach((o) => (o.order = FSTATE.rate ? ord(o) : o.raw));
+      repl = assign(pool, pit, R);
+      pool.forEach((o) => { o.par = parOf(o, o.raw, o.vol, repl); o.order = ord(o); });
+    }
+    repl = assign(pool, pit, R);
+    pool.forEach((o) => { o.par = parOf(o, o.raw, o.vol, repl); });
+    // scenarios against the same baseline and replacement levels
+    for (const o of pool) {
+      for (const w of ["lo", "hi", "healthy"]) {
+        const s = scenario(o, w), v = volOf(o, s);
+        o["par_" + w] = parOf(o, rawVal(s, pit, b, v), v, repl);
+      }
+      if (FSTATE.mode === "cats") o.z = zParts(o.s, pit, b);
+      else { o.pts = ptsOf(o.s, pit ? FSTATE.pw : FSTATE.hw, pit); o.rateV = o.vol > 0 ? o.pts / o.vol : null; }
+    }
+    res[g] = { pool, b, repl, nSlots, sumPar: pool.filter((o) => o.slot && o.par > 0).reduce((a, o) => a + o.par, 0) };
+  }
+  const totalSpots = SLOTS_H.concat(SLOTS_P).reduce((a, k) => a + (R[k] || 0), 0) + (R.bench || 0);
+  const D = R.teams * (R.budget - totalSpots * R.minBid);
+  const autoH = res.h.sumPar / Math.max(1e-9, res.h.sumPar + res.p.sumPar);
+  const hShare = FSTATE.split === "auto" ? autoH : FSTATE.splitPct / 100;
+  const rate = { h: (D * hShare) / Math.max(1e-9, res.h.sumPar), p: (D * (1 - hShare)) / Math.max(1e-9, res.p.sumPar) };
+  const all = [];
+  for (const g of ["h", "p"]) for (const o of res[g].pool) {
+    const k = rate[g];
+    o.val = R.minBid + o.par * k; o.lo = Math.max(0, R.minBid + o.par_lo * k); o.hi = Math.max(0, R.minBid + o.par_hi * k); o.hv = R.minBid + o.par_healthy * k;
+    all.push(o);
+  }
+  combineTwoWay(all, R);
+  FV = { all, res, hShare, autoH, D, rate, totalSpots };
+  applyRisk();
+  applyInflation();
+}
+// Two-way players (Ohtani). "two": separate hitter and pitcher, as on Yahoo. "both": one player
+// eligible at UTIL and SP whose hitting and pitching both count (one roster spot, so one min bid).
+// "better": one player whose stats count only on the side he is slotted, so he is worth his better side.
+function combineTwoWay(all, R) {
+  if (FSTATE.ohtani === "two") return;
+  const byId = {};
+  all.forEach((o, i) => { (byId[o.id] = byId[o.id] || []).push(i); });
+  for (const idxs of Object.values(byId)) {
+    if (idxs.length !== 2) continue;
+    const [h, p] = idxs.map((i) => all[i]).sort((a, b) => a.pit - b.pit);
+    if ((h.r.pa || 0) < 100 || (p.r.ip || 0) < 20) continue;
+    const c = { key: "o" + h.id, id: h.id, two: true, parts: [h, p], r: h.r, pit: false, tab: "h", pos: [...new Set([...h.pos, "UTIL", ...p.pos])], s: h.s, vol: h.vol };
+    for (const k of ["val", "lo", "hi", "hv"]) c[k] = FSTATE.ohtani === "both" ? h[k] + p[k] - R.minBid : Math.max(h[k], p[k]);
+    c.lo = Math.max(0, c.lo);
+    if (FSTATE.mode === "pts") c.pts = FSTATE.ohtani === "both" ? h.pts + p.pts : (h.val >= p.val ? h.pts : p.pts);
+    all.splice(Math.max(...idxs), 1); all.splice(Math.min(...idxs), 1); all.push(c);
+  }
+}
+function applyRisk() {
+  const lam = FSTATE.risk;
+  const risk = (o) => { o.adj = o.val + (lam > 0 ? lam * (o.hi - o.val) : lam * (o.val - o.lo)) * 0.5; };
+  for (const o of FV.all) { risk(o); if (o.two) o.parts.forEach(risk); }
+  applyAdp();
+  posRanks();
+}
+// Rank at every eligible position (multi-position players get one rank per position).
+// Hitters with no position rank at UTIL among all hitters.
+const posList = (o) => o.pos.length ? o.pos : ["UTIL"];
+function posRanks() {
+  const by = {};
+  for (const o of FV.all) for (const p of posList(o)) (by[p] = by[p] || []).push(o);
+  for (const o of FV.all) o.prk = {};
+  by.UTIL = FV.all.filter((o) => !o.pit || o.two);
+  // Two-way players rank at each position on that side's value only (pitching for SP/RP, hitting for UTIL).
+  const v = (o, p) => !o.two ? o.adj : o.parts[["SP", "RP", "P"].includes(p) ? 1 : 0].adj;
+  for (const [p, list] of Object.entries(by)) list.sort((a, b) => v(b, p) - v(a, p)).forEach((o, i) => { if (posList(o).includes(p) || p === "UTIL") o.prk[p] = i + 1; });
+}
+// Production vs slot, like MLB draft slot values: a pick's "slot value" is what GOOSE thinks the
+// player taken at that spot should be worth (the n-th highest GOOSE value). Surplus = GOOSE value
+// minus the slot value at his ADP. Auctions compare to the average price (scaled to this budget).
+// "All drafts" ADP follows league size: NFBC reports 10-, 12- and 15-team leagues separately
+// (deeper leagues push pitchers and catchers up the board).
+function adpKey() {
+  if (FSTATE.adp !== "all") return FSTATE.adp;
+  const n = [10, 12, 15].reduce((a, b) => Math.abs(b - FSTATE.roster.teams) < Math.abs(a - FSTATE.roster.teams) ? b : a);
+  return DATA.adp?.sets["all_" + n] ? "all_" + n : "all";
+}
+function applyAdp() {
+  const set = FSTATE.adp !== "none" && DATA.adp ? DATA.adp.sets[adpKey()] || DATA.adp.sets[FSTATE.adp] : null;
+  const auction = FSTATE.adp === "aav";
+  const curve = FV.all.map((o) => o.adj).sort((a, b) => b - a);
+  const slot = (pick) => { const i = Math.max(1, pick) - 1, j = Math.floor(i), f = i - j; return j + 1 < curve.length ? curve[j] * (1 - f) + curve[j + 1] * f : curve[curve.length - 1]; };
+  const rank = new Map([...FV.all].sort((a, b) => b.adj - a.adj).map((o, i) => [o.key, i + 1]));
+  for (const o of FV.all) {
+    o.grank = rank.get(o.key);
+    const a = set ? set[String(o.id)] : null;
+    const usable = a && !(o.pit && !o.two && FV.all.some((x) => x.id === o.id && !x.pit && !x.two)); // Ohtani's ADP goes to his bat
+    if (!usable) { o.adp = null; o.slotV = null; o.surplus = null; continue; }
+    o.adp = a[0]; o.adpMin = a[1]; o.adpMax = a[2]; o.adpN = a[3];
+    o.slotV = auction ? a[0] * FSTATE.roster.budget / 260 : slot(a[0]);
+    o.surplus = o.adj - o.slotV;
+  }
+}
+function applyInflation() {
+  const R = FSTATE.roster, dr = FSTATE.drafted;
+  const spent = Object.values(dr).reduce((a, d) => a + (d.price || 0), 0);
+  const nDr = Object.keys(dr).length;
+  const spotsLeft = Math.max(0, R.teams * FV.totalSpots - nDr);
+  const avail = FV.all.filter((o) => !dr[o.key]).sort((a, b) => b.adj - a.adj).slice(0, spotsLeft);
+  const surplus = avail.reduce((a, o) => a + Math.max(0, o.adj - R.minBid), 0);
+  const money = R.teams * R.budget - spent - spotsLeft * R.minBid;
+  FV.infl = nDr ? Math.max(0, money) / Math.max(1e-9, surplus) : 1;
+  FV.spent = spent; FV.nDr = nDr;
+  for (const o of FV.all) o.inf = o.adj > R.minBid ? R.minBid + (o.adj - R.minBid) * FV.infl : o.adj;
+}
+
+/* ---------- rendering ---------- */
+const money = (v) => v == null ? "–" : (v < 0 ? "−$" : "$") + Math.abs(Math.round(v));
+const numIn = (id, v, step = 1, min = 0) => `<input id="${id}" type="number" value="${v}" step="${step}" min="${min}">`;
+function catFmt(c, v) { return v == null ? "–" : c.pct ? pct(v) : c.d === 3 ? f3(v) : c.d === 2 ? f2(v) : f0(v); }
+function catValue(c, s) { if (c.ops) { const pa = s.ab + s.bb + s.hbp + s.sf; return (s.h + s.bb + s.hbp) / Math.max(1, pa) + tb(s) / Math.max(1, s.ab); } return c.num ? c.num(s) / Math.max(1e-9, c.den(s)) : c.f(s); }
+
+function settingsHTML() {
+  const F = FSTATE, R = F.roster;
+  const presetOpts = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}" ${k === F.preset && !F.custom ? "selected" : ""}>${p.label}</option>`).join("")
+    + `<option value="custom" ${F.custom ? "selected" : ""}>Custom (edited)</option>`;
+  const cats = (list, sel, pit) => `<div class="catbox">${list.map((c) => `<label><input type="checkbox" data-cat="${pit ? "p" : "h"}" value="${c.k}" ${sel.includes(c.k) ? "checked" : ""}>${c.label || c.k}</label>`).join("")}</div>`;
+  const pts = (list, w, pit) => `<div class="ptsgrid">${list.map(([k, l]) => `<label class="fld">${l}<input type="number" step="0.1" data-pts="${pit ? "p" : "h"}" data-k="${k}" value="${w[k] ?? 0}"></label>`).join("")}</div>`;
+  return `
+  <div class="panel fset">
+    <div class="frow">
+      <label class="fld wide">Format<select id="fPreset">${presetOpts}</select></label>
+      <label class="fld">Scoring<select id="fMode"><option value="cats" ${F.mode === "cats" ? "selected" : ""}>Categories (roto / H2H)</option><option value="pts" ${F.mode === "pts" ? "selected" : ""}>Points</option></select></label>
+      ${F.mode === "pts" ? `<label class="fld">Points valued<select id="fRate"><option value="0" ${!F.rate ? "selected" : ""}>Season totals</option><option value="1" ${F.rate ? "selected" : ""}>Per game / per IP (capped leagues)</option></select></label>` : ""}
+      <label class="fld">League size<select id="fTeamsSel">${[8, 10, 12, 14, 15, 16, 18, 20].map((n) => `<option value="${n}" ${R.teams === n ? "selected" : ""}>${n} teams</option>`).join("")}<option value="custom" ${[8, 10, 12, 14, 15, 16, 18, 20].includes(R.teams) ? "" : "selected"}>Custom…</option></select></label>
+      ${[8, 10, 12, 14, 15, 16, 18, 20].includes(R.teams) && !F.teamsCustom ? "" : `<label class="fld">Teams${numIn("fTeams", R.teams, 1, 2)}</label>`}
+      <label class="fld">Budget ($)${numIn("fBudget", R.budget, 1, 1)}</label>
+      <label class="fld">Min bid${numIn("fMin", R.minBid, 1, 0)}</label>
+      <label class="fld">Hitter share<select id="fSplit"><option value="auto" ${F.split === "auto" ? "selected" : ""}>Auto (${Math.round((FV?.autoH ?? 0.65) * 100)}%)</option>${[55, 60, 65, 67, 70].map((v) => `<option value="${v}" ${F.split !== "auto" && F.splitPct === v ? "selected" : ""}>${v}%</option>`).join("")}</select></label>
+      <label class="fld">ADP source (NFBC)<select id="fAdp">${[["all", `All drafts (${adpKey().startsWith("all_") ? adpKey().slice(4) + "-team" : "any size"})`], ["main", "Main Event (15-team)"], ["oc", "Online Championship"], ["dc", "Draft Champions (D&amp;H)"], ["aav", "Auction values (AAV)"], ["none", "Off"]].map(([k, l]) => `<option value="${k}" ${F.adp === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="fld">Risk dial · ${F.risk < 0 ? "safer" : F.risk > 0 ? "upside" : "neutral"}<input id="fRisk" type="range" min="-1" max="1" step="0.25" value="${F.risk}" style="accent-color:var(--accent)"></label>
+    </div>
+    <details class="fdet" ${F.mode === "cats" ? "open" : ""}><summary>${F.mode === "cats" ? "Categories" : "Point values"}</summary>
+      ${F.mode === "cats" ? `<div class="fset"><div><h3>Hitting</h3>${cats(HCATS, F.hc, false)}</div><div><h3>Pitching</h3>${cats(PCATS, F.pc, true)}</div></div>`
+        : `<div class="fset"><div><h3>Hitting</h3>${pts(HPTS, F.hw, false)}</div><div><h3>Pitching</h3>${pts(PPTS, F.pw, true)}</div>
+           <p class="note">Preset point values are each platform's published defaults; check them against your league's settings. In Ottoneu, a hit scores H plus its extra-base value (a double = 5.6 + 2.9).</p></div>`}
+    </details>
+    <details class="fdet"><summary>Roster and eligibility</summary>
+      <div class="frow">${SLOTS_H.map((k) => `<label class="fld">${k}${numIn("fs_" + k, R[k] || 0)}</label>`).join("")}</div>
+      <div class="frow" style="margin-top:10px">${SLOTS_P.map((k) => `<label class="fld">${k}${numIn("fs_" + k, R[k] || 0)}</label>`).join("")}
+        <label class="fld">Bench${numIn("fs_bench", R.bench || 0)}</label>
+        <label class="fld">Waiver wire<select id="fWaivers"><option value="active" ${R.waivers !== "none" ? "selected" : ""}>Active (replacement = best free agent)</option><option value="none" ${R.waivers === "none" ? "selected" : ""}>None: draft &amp; hold / best ball</option></select></label>
+        ${R.waivers === "none" ? `<label class="fld">Bench % pitchers${numIn("fBenchP", Math.round((R.benchP ?? 0.5) * 100), 5, 0)}</label>` : ""}
+        ${F.rate ? `<label class="fld">IP cap${numIn("fs_ipCap", R.ipCap || 1500, 50, 0)}</label>` : ""}
+        <label class="fld wide">Eligibility rules<select id="fRule">${Object.entries(ELIG_RULES).map(([k, v]) => `<option value="${k}" ${F.elig.rule === k ? "selected" : ""}>${v.label}</option>`).join("")}<option value="custom" ${F.elig.rule === "custom" ? "selected" : ""}>Custom thresholds</option></select></label>
+        <label class="fld">Elig. games (2026)${numIn("fGThr", F.elig.gThr, 1, 1)}</label>
+        <label class="fld">SP: starts${numIn("fSpThr", F.elig.spThr ?? 5, 1, 1)}</label>
+        <label class="fld">RP: relief apps${numIn("fRpThr", F.elig.rpThr ?? 5, 1, 1)}</label>
+        <label class="fld">or starts${numIn("fGsThr", F.elig.gsThr, 1, 1)}</label>
+        <label class="toggle" style="padding:7px 10px"><input id="fBoth" type="checkbox" ${F.elig.both ? "checked" : ""}> Also count 2025</label>
+        <label class="fld">Shohei Ohtani<select id="fOhtani">${[["both", "One player (UTIL + SP), both sides count"], ["better", "One player, only his slotted side counts"], ["two", "Two players: hitter and pitcher (Yahoo)"]].map(([k, l]) => `<option value="${k}" ${F.ohtani === k ? "selected" : ""}>${l}</option>`).join("")}</select></label></div>
+      <p class="note">Eligibility uses MLB games and starts by position; players without MLB games use their listed position. Pitchers are SP-eligible with enough official 2026 starts (openers count, as on most platforms) and RP-eligible with enough relief appearances; pitchers without MLB appearances use their projected role. A pitcher's stat line is GOOSE's most likely role for 2027, whatever slots he qualifies for: an RP-eligible starter brings starter innings to an RP slot. Two-way players follow the Ohtani setting; check how your platform handles him.</p>
+    </details>
+  </div>`;
+}
+
+function rowsFor() {
+  const F = FSTATE, q = fold(F.q.trim());
+  let rows = FV.all.filter((o) => F.show === "all" || o.two || (F.show === "h" ? !o.pit : o.pit));
+  if (F.pos) rows = rows.filter((o) => o.prk[F.pos] != null);
+  if (F.hideDrafted) rows = rows.filter((o) => !F.drafted[o.key]);
+  if (q) rows = rows.filter((o) => fold(o.r.name).includes(q) || fold(o.r.team || "") === q);
+  const [k, d] = F.sort;
+  const get = (o) => k === "prk" ? -(o.prk[F.pos] ?? 1e9) : k === "adp" ? (o.adp == null ? null : -o.adp) : k === "surplus" ? o.surplus : k === "hand" ? handOf(o) : k === "val" ? (FV.nDr ? o.inf : o.adj) : k === "name" ? o.r.name : k === "rng" ? o.hi - o.lo : k === "pts" ? o.pts : k === "rate" ? o.rateV
+    : k.startsWith("c:") ? (() => { const [, side, ck] = k.split(":"); const so = sideOf(o, side); if (!so) return null; const c = (so.pit ? PCATS : HCATS).find((x) => x.k === ck); return catValue(c, so.s) * (c.neg ? -1 : 1); })() : o[k];
+  return rows.sort((a, b) => { const x = get(a), y = get(b); if (typeof x === "string") return d * x.localeCompare(y); return d * ((x ?? -Infinity) - (y ?? -Infinity)); });
+}
+
+function flagsOf(o) {
+  if (o.two) return `<span class="flag on">Two-way · ${({ both: "both sides count", better: "better side" })[FSTATE.ohtani]}</span>` + o.parts.map(flagsOf).join("");
+  const r = o.r, f = [];
+  if (r.injury) f.push(`<span class="flag alert" title="${r.injury}">Injury</span>`);
+  if (!o.pit && r.role === "Strict platoon") f.push(`<span class="flag">Platoon</span>`);
+  if (!o.pit && r.pfull != null && r.pfull < 0.4 && (r.pa || 0) > 300) f.push(`<span class="flag">PT risk</span>`);
+  if (o.pit && o.tab === "p" && r.prot != null && r.prot < 0.5) f.push(`<span class="flag">Rotation spot ${pct(r.prot, 0)}</span>`);
+  const rr = o.rr || (o.tab === "r" ? r : null);
+  if (rr && rr.svshare != null && rr.svshare >= 0.35) f.push(`<span class="flag on">${pct(rr.svshare, 0)} of saves</span>`);
+  if (rr && rr.pconv != null && rr.pconv >= 0.05) f.push(`<span class="flag on">Rotation candidate</span>`);
+  if (r.fa === 1) f.push(`<span class="flag">FA</span>`);
+  if (r.status && r.status !== "MLB") f.push(`<span class="flag">${r.status}</span>`);
+  return f.join("");
+}
+
+const sideOf = (o, side) => (o.two ? o.parts[side === "p" ? 1 : 0] : ((side === "p") === o.pit ? o : null));
+const handOf = (o) => o.two ? handOf(o.parts[0]) + "/" + handOf(o.parts[1]) : (o.pit ? o.r.throws + "HP" : o.r.bats === "S" ? "Switch" : (o.r.bats ?? "–") + "HB");
+function tableHTML(rows) {
+  const F = FSTATE;
+  const cats = F.mode === "cats" ? [...(F.show !== "p" ? catList(false).map((c) => ["h", c]) : []), ...(F.show !== "h" ? catList(true).map((c) => ["p", c]) : [])] : [];
+  const cols = [["rk", "#"], ["name", "Player"], ...(F.pos ? [["prk", F.pos + " rank"]] : []), ["hand", "B/T"], ["val", FV.nDr ? "Inflated $" : "$"], ["rng", "Range (P10–P90)"],
+    ...(F.mode === "pts" ? [["pts", "Points"], ...(F.rate ? [["rate", F.show === "h" ? "Pts/G" : F.show === "p" ? "Pts/IP" : "Pts/G·IP"]] : [])] : cats.map(([s, c]) => ["c:" + s + ":" + c.k, (c.label || c.k)])),
+    ...(FSTATE.adp !== "none" ? [["adp", FSTATE.adp === "aav" ? "AAV" : "ADP"], ["surplus", "Surplus"]] : []),
+    ["flags", "Notes"]];
+  const [sk, sd] = F.sort;
+  const head = cols.map(([k, l]) => k === "rk" || k === "flags" ? `<th>${l}</th>` :
+    `<th${k === sk ? ` aria-sort="${sd > 0 ? "ascending" : "descending"}"` : ""}><button type="button" data-fsort="${k}">${l}${k === sk ? (sd > 0 ? " ▲" : " ▼") : ""}</button></th>`).join("");
+  const body = rows.slice(0, 600).map((o, i) => {
+    const d = F.drafted[o.key];
+    const v = FV.nDr ? o.inf : o.adj;
+    const cells = cols.map(([k]) => {
+      if (k === "rk") return `<td class="rk">${i + 1}</td>`;
+      if (k === "name") return `<td><span class="pname">${o.r.name}</span><span class="pmeta">${o.r.team ?? ""}</span><span class="poschips">${posList(o).map((p) => `<span title="#${o.prk[p]} at ${p}"${FSTATE.pos === p ? ' style="color:var(--accent)"' : ""}>${p}${o.prk[p] ?? ""}</span>`).join("")}</span>${d ? `<span class="pmeta">· ${d.mine ? "mine" : "taken"} $${d.price}</span>` : ""}</td>`;
+      if (k === "hand") return `<td>${handOf(o)}</td>`;
+      if (k === "prk") return `<td><b>${F.pos}${o.prk[F.pos] ?? "–"}</b></td>`;
+      if (k === "adp") return `<td>${o.adp == null ? "–" : FSTATE.adp === "aav" ? "$" + f0(o.adp) : o.adp.toFixed(1)}</td>`;
+      if (k === "surplus") return `<td>${o.surplus == null ? "–" : `<span style="color:${o.surplus >= 0 ? "var(--good)" : "var(--bad)"};font-weight:600">${o.surplus >= 0 ? "+" : "−"}$${Math.abs(o.surplus).toFixed(0)}</span>`}</td>`;
+      if (k === "val") return `<td><span class="dol ${v < FSTATE.roster.minBid ? "neg" : ""}">${money(v)}</span></td>`;
+      if (k === "rng") return `<td class="rng">${money(o.lo)} – ${money(o.hi)}</td>`;
+      if (k === "pts") return `<td>${f0(o.pts)}</td>`;
+      if (k === "rate") return `<td>${o.two || o.rateV == null ? "–" : o.rateV.toFixed(2)}</td>`;
+      if (k === "flags") return `<td style="text-align:left"><span class="flags">${flagsOf(o)}</span></td>`;
+      const [, side, ck] = k.split(":");
+      const so = sideOf(o, side);
+      if (!so) return `<td></td>`;
+      const c = (so.pit ? PCATS : HCATS).find((x) => x.k === ck);
+      return `<td>${catFmt(c, catValue(c, so.s))}</td>`;
+    }).join("");
+    return `<tr tabindex="0" data-fkey="${o.key}" class="${d ? (d.mine ? "drafted mine" : "drafted") : ""}" aria-selected="${o.key === F.sel}">${cells}</tr>`;
+  }).join("");
+  return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody id="fbody">${body || `<tr><td colspan="${cols.length}" class="empty">No players match.</td></tr>`}</tbody></table></div>`;
+}
+
+function detailHTML(o) {
+  if (!o) return `<p class="note">Select a player to see where the value comes from.</p>`;
+  const F = FSTATE, r = o.r, d = F.drafted[o.key];
+  const lo = Math.min(o.lo, o.val, -5), hi = Math.max(o.hi, o.val, o.hv, 10);
+  const pos = (x) => ((x - lo) / (hi - lo)) * 100;
+  const parts = o.two ? o.parts : [o];
+  const breakdown = parts.map((x) => (o.two ? `<p class="note"><b>${x.pit ? "Pitching" : "Hitting"}: ${money(x.val)}</b>${F.ohtani === "better" && x.val < Math.max(...o.parts.map((y) => y.val)) ? " (not counted: only his better side counts)" : ""}</p>` : "") + breakdownOf(x)).join("");
+  const extra = parts.flatMap(contextOf);
+  return pageOf(o, r, d, lo, hi, pos, breakdown, extra);
+}
+function breakdownOf(o) {
+  const F = FSTATE;
+  let breakdown = "";
+  if (F.mode === "cats") {
+    breakdown = `<div class="sect"><h3>Category value (standard deviations vs the drafted pool)</h3>${o.z.map(([k, z]) => {
+      const c = (o.pit ? PCATS : HCATS).find((x) => x.k === k), w = Math.min(50, Math.abs(z) * 25);
+      return `<div class="zrow"><span>${c.label || k}</span><div class="zbar"><span class="mid"></span><i style="left:${z >= 0 ? 50 : 50 - w}%;width:${w}%;background:${z >= 0 ? "var(--accent)" : "var(--bad)"}"></i></div><span style="text-align:right">${catFmt(c, catValue(c, o.s))}</span></div>`;
+    }).join("")}</div>`;
+  } else {
+    const w = o.pit ? F.pw : F.hw;
+    const parts = (o.pit ? PPTS : HPTS).filter(([k]) => w[k]).map(([k, l]) => [l, (w[k] || 0) * (k === "tb" ? tb(o.s) : (o.s[k] || 0))]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    breakdown = `<div class="sect"><h3>Where the points come from</h3>${parts.map(([l, v]) => `<div class="kv"><span>${l}</span><b>${f0(v)}</b></div>`).join("")}
+      <div class="kv"><span>Total</span><b>${f0(o.pts)}${F.rate && o.rateV != null ? ` · ${o.rateV.toFixed(2)} per ${o.pit ? "IP" : "G"} over ${f0(o.vol)} ${o.pit ? "IP" : "G"}` : ""}</b></div></div>`;
+  }
+  return breakdown;
+}
+function contextOf(o) {
+  const r = o.r;
+  const extra = [];
+  if (!o.pit) {
+    extra.push(`<div class="kv"><span>Projected PA (P10–P90)</span><b>${f0(r.pa)} (${f0(r.pa10)}–${f0(r.pa90)})</b></div>`);
+    if (r.pfull != null) extra.push(`<div class="kv"><span>Chance of a full-time season</span><b>${pct(r.pfull, 0)}</b></div>`);
+    if (r.role) extra.push(`<div class="kv"><span>Platoon role</span><b>${r.role}</b></div>`);
+  } else {
+    extra.push(`<div class="kv"><span>Projected IP (P10–P90)</span><b>${f0(r.ip)} (${f0(r.ip10)}–${f0(r.ip90)})</b></div>`);
+    if (r.pfull != null) extra.push(`<div class="kv"><span>Chance of a full season</span><b>${pct(r.pfull, 0)}</b></div>`);
+    if (r.prot != null && o.tab === "p") extra.push(`<div class="kv"><span>Rotation spot (#${f0(r.rank)} on ${r.team})</span><b>${pct(r.prot, 0)}</b></div>`);
+    const rr = o.rr || (o.tab === "r" ? r : null);
+    if (rr && rr.svshare != null) extra.push(`<div class="kv"><span>Share of ${r.team} saves</span><b>${pct(rr.svshare, 0)}</b></div>`);
+    if (rr && rr.p20sv != null) extra.push(`<div class="kv"><span>Chance of 20+ saves</span><b>${pct(rr.p20sv, 0)}</b></div>`);
+    if (rr && rr.pconv != null && rr.pconv >= 0.03) extra.push(`<div class="kv"><span>Chance of moving into a rotation</span><b>${pct(rr.pconv, 0)}</b></div>`);
+  }
+  if (r.injury) extra.push(`<div class="kv"><span>Injury</span><b>${r.injury}</b></div>`);
+  return extra;
+}
+function pageOf(o, r, d, lo, hi, pos, breakdown, extra) {
+  const F = FSTATE;
+  return `
+    <div><h2 class="dname">${r.name}</h2><div class="dmeta">${r.team ?? ""} · ${handOf(o)} · ${(o.pos.length ? o.pos : ["UTIL"]).join(", ")} · age ${r.age?.toFixed(0) ?? ""}</div></div>
+    <div class="headline">
+      <div class="big"><div class="v">${money(o.adj)}</div><div class="l">Value${F.risk ? " (risk-adjusted)" : ""}</div></div>
+      <div class="big"><div class="v">${money(o.hv)}</div><div class="l">If healthy</div></div>
+      <div class="big"><div class="v">${FV.nDr ? money(o.inf) : money(o.val)}</div><div class="l">${FV.nDr ? "With inflation" : "Neutral"}</div></div>
+    </div>
+    <div class="sect"><h3>Value range</h3>
+      <div class="range"><div class="rl"><span>Floor <b>${money(o.lo)}</b></span><span>Ceiling <b>${money(o.hi)}</b></span></div>
+        <div class="bar" role="img" aria-label="Value from ${money(o.lo)} to ${money(o.hi)}, expected ${money(o.val)}">
+          <div class="band" style="left:${pos(o.lo)}%;width:${Math.max(1, pos(o.hi) - pos(o.lo))}%"></div><div class="mean" style="left:${pos(o.val)}%"></div>
+          <div class="tick" style="left:${pos(o.hv)}%" title="If healthy"></div></div>
+        <div class="axis"><span>${money(lo)}</span><span>dot = expected · tick = if healthy</span><span>${money(hi)}</span></div></div>
+      <p class="note">Floor and ceiling price the player at his 10th and 90th percentile playing time${o.pit ? "" : " with half of his 10th–90th percentile wOBA swing"}${o.pit && (o.rr || o.tab === "r") ? " and saves range" : ""}${o.two ? "; for a two-way player each side is priced separately and combined" : ""}.</p>
+    </div>
+    ${breakdown}
+    ${o.adp != null ? `<div class="sect"><h3>Production vs draft slot</h3>
+      <div class="kv"><span>${FSTATE.adp === "aav" ? "NFBC average price" : "NFBC ADP"} (${DATA.adp.label})</span><b>${FSTATE.adp === "aav" ? "$" + f0(o.adp) : o.adp.toFixed(1)}${o.adpMin != null ? ` · range ${FSTATE.adp === "aav" ? "$" + f0(o.adpMin) + "–$" + f0(o.adpMax) : f0(o.adpMin) + "–" + f0(o.adpMax)}` : ""}</b></div>
+      <div class="kv"><span>${FSTATE.adp === "aav" ? "Price in this league" : "Slot value at that pick"}</span><b>${money(o.slotV)}</b></div>
+      <div class="kv"><span>GOOSE value (rank ${o.grank})</span><b>${money(o.adj)}</b></div>
+      <div class="kv"><span>Surplus</span><b style="color:${o.surplus >= 0 ? "var(--good)" : "var(--bad)"}">${o.surplus >= 0 ? "+" : "−"}$${Math.abs(o.surplus).toFixed(1)}</b></div></div>` : ""}
+    <div class="sect"><h3>Position ranks</h3><div class="grid">${posList(o).map((p) => cell(p, "#" + (o.prk[p] ?? "–"))).join("")}${!o.pit || o.two ? cell("All hitters", "#" + o.prk.UTIL) : ""}${cell("Overall", "#" + o.grank)}</div></div>
+    <div class="sect"><h3>Context</h3>${extra.join("")}</div>
+    <div class="sect"><h3>Draft tracker</h3>
+      <div class="frow"><label class="fld">Price${numIn("fPrice", d ? d.price : Math.max(F.roster.minBid, Math.round(FV.nDr ? o.inf : o.adj)), 1, 0)}</label>
+        <label class="toggle" style="padding:7px 10px"><input id="fMine" type="checkbox" ${d && d.mine ? "checked" : ""}> My team</label>
+        <button class="btn primary" type="button" id="fDraft">${d ? "Update" : "Mark drafted"}</button>
+        ${d ? `<button class="btn" type="button" id="fUndraft">Undo</button>` : ""}</div>
+    </div>`;
+}
+
+/* ---------- Ottoneu league import ----------
+   Ottoneu's roster export (ottoneu.fangraphs.com/<league>/rosterexport?csv=1) sits behind a browser
+   check, so the page can't fetch it; the user downloads it (or copies it) and drops it here.
+   Columns: TeamID, Team Name, ottoneu ID, FG MajorLeagueID, FG MinorLeagueID, Name, MLB Team,
+   Position(s), Salary. Players match by FanGraphs id, then by name. Everything is valued with the
+   current settings (use an Ottoneu preset for Ottoneu values). */
+function parseCSV(text) {
+  const rows = [];
+  let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === "," || c === "\t") { row.push(cur); cur = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cur); cur = ""; if (row.some((x) => x.trim())) rows.push(row); row = []; }
+    else cur += c;
+  }
+  row.push(cur); if (row.some((x) => x.trim())) rows.push(row);
+  return rows;
+}
+function importLeague(text) {
+  const rows = parseCSV(text.trim());
+  if (rows.length < 2) return "No rows found. Paste the whole CSV, including the header line.";
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const ci = { team: col(/^team name$/), name: col(/^name$/), fg: col(/majorleagueid/), fgm: col(/minorleagueid/), sal: col(/salary/), pos: col(/position/) };
+  if (ci.team < 0 || ci.name < 0) return "Couldn't find the Team Name and Name columns. Is this Ottoneu's roster export?";
+  const players = rows.slice(1).filter((r) => r[ci.name]).map((r) => ({
+    team: r[ci.team].trim(), name: r[ci.name].trim(), fg: ci.fg >= 0 ? r[ci.fg].trim() : "", fgm: ci.fgm >= 0 ? r[ci.fgm].trim() : "",
+    salary: ci.sal >= 0 ? Number(String(r[ci.sal]).replace(/[$,]/g, "")) || 0 : 0, pos: ci.pos >= 0 ? r[ci.pos].trim() : "" }));
+  return setLeague(players, FSTATE.league?.id || "", null);
+}
+function setLeague(players, id, meta) {
+  FSTATE.league = { id, players, my: FSTATE.league?.id === id ? FSTATE.league.my : "", sort: ["value", -1], open: null,
+    at: new Date().toISOString().slice(0, 10), name: meta?.name, scoring: meta?.scoring, caps: meta?.caps || null,
+    platform: meta?.platform || "ottoneu", salaries: meta ? meta.salaries !== false : true, season: meta?.season };
+  return `Imported ${players.length} players on ${new Set(players.map((p) => p.team)).size} teams.`;
+}
+// Leagues preloaded at build time (fetched by ID); picking one also switches to its scoring format.
+function loadPreloaded(id) {
+  const lg = (DATA.leagues || []).find((l) => String(l.id) === String(id));
+  if (!lg) return null;
+  let note = "";
+  if (lg.preset && PRESETS[lg.preset]) { applyPreset(lg.preset); if (lg.teams) FSTATE.roster.teams = lg.teams; note = ` Switched to ${PRESETS[lg.preset].label}${lg.teams ? `, ${lg.teams} teams` : ""}.`; }
+  else if (lg.settings) {  // Fantrax: the league's own scoring and roster slots
+    const S = lg.settings, F = FSTATE;
+    Object.assign(F, { preset: "custom", custom: true, mode: S.mode, rate: false, split: S.mode === "cats" ? "manual" : "auto", splitPct: 67,
+      elig: eligOf("fantrax"), ohtani: "both", adp: "all" });
+    if (S.mode === "cats") { F.hc = S.hc.length ? S.hc : F.hc; F.pc = S.pc.length ? S.pc : F.pc; } else { F.hw = S.hw; F.pw = S.pw; }
+    F.roster = { ...STD_ROSTER, ...S.roster, budget: 260, minBid: 1 };
+    note = ` Using the league's ${S.mode === "pts" ? "point values" : "categories"} and roster slots${S.notes?.length ? ` (${S.notes.join("; ")})` : ""}.`;
+  }
+  return setLeague(lg.players, String(lg.id), lg) + note;
+}
+// Match a roster row to a valued player.
+function leagueMatch(p) {
+  const id = DATA.fgmap?.[p.fg] ?? DATA.fgmap?.[p.fgm];
+  const isP = /^(SP|RP|P)(\/|$)/.test(p.pos) && !/UTIL|DH|C|1B|2B|3B|SS|OF/.test(p.pos);
+  let cands = id != null ? FV.all.filter((o) => o.id === id) : FV.all.filter((o) => fold(o.r.name) === fold(p.name));
+  if (cands.length > 1) { const side = cands.filter((o) => o.two || o.pit === isP); if (side.length) cands = side; }
+  return cands.sort((a, b) => b.adj - a.adj)[0] || null;
+}
+// Best lineup for one team under this league's slots: count slots in standard leagues, games/innings
+// caps in capped (per-game / per-IP) leagues. Returns the share of each player's season used.
+function lineupShare(list) {
+  const R = { ...FSTATE.roster, teams: 1, waivers: "active" };
+  const used = new Map();
+  for (const pit of [false, true]) {
+    const cap = capacity(pit, R);
+    const order = pit ? ["SP", "RP", "P"] : ["C", "SS", "2B", "3B", "OF", "1B", "MI", "CI", "UTIL"];
+    const pool = list.filter((o) => (o.two ? !pit : o.pit === pit));
+    const score = (o) => FSTATE.rate ? (o.vol > 0 ? (o.two ? o.adj / Math.max(o.vol, 1) : o.raw) : -1e9) : o.adj;
+    for (const o of [...pool].sort((a, b) => score(b) - score(a))) {
+      const slots = o.two ? ["UTIL"] : o.slots;
+      let need = FSTATE.rate ? Math.max(o.vol, 1) : 1, got = 0;
+      for (const k of order.filter((k) => slots.includes(k))) {
+        if (need <= 0) break;
+        const take = Math.min(need, cap[k] || 0);
+        if (take > 0) { cap[k] -= take; need -= take; got += take; }
+      }
+      if (got > 0) used.set(o.key, FSTATE.rate ? got / Math.max(o.vol, 1) : 1);
+    }
+  }
+  return used;
+}
+function leagueTeams() {
+  const L = FSTATE.league; if (!L) return [];
+  const by = {};
+  for (const p of L.players) {
+    const o = leagueMatch(p);
+    (by[p.team] = by[p.team] || []).push({ ...p, o, val: o ? o.adj : 0 });
+  }
+  return Object.entries(by).map(([team, ps]) => {
+    const share = lineupShare(ps.filter((p) => p.o).map((p) => p.o));
+    ps.forEach((p) => { p.share = p.o ? share.get(p.o.key) || 0 : 0; p.surplus = p.val - p.salary; });
+    const lineupVal = ps.reduce((a, p) => a + (p.o ? p.share * p.val : 0), 0);
+    const lineupPts = FSTATE.mode === "pts" ? ps.reduce((a, p) => a + (p.o ? p.share * (p.o.pts || 0) : 0), 0) : null;
+    const cap = FSTATE.league.caps?.[team];
+    const salary = ps.reduce((a, p) => a + p.salary, 0);
+    return { team, ps, n: ps.length, salary, pen: cap ? cap.penalties : null, used: salary + (cap ? cap.penalties : 0),
+      capMax: cap ? cap.cap : FSTATE.roster.budget, loans: cap ? cap.loans_in - cap.loans_out : null, value: ps.reduce((a, p) => a + Math.max(0, p.val), 0),
+      keep: ps.reduce((a, p) => a + Math.max(0, p.surplus), 0), lineupVal, lineupPts, unmatched: ps.filter((p) => !p.o).length };
+  });
+}
+const LG_COLS = [["team", "Team"], ["n", "Players"], ["salary", "Salaries"], ["pen", "Penalties"], ["used", "Cap used"], ["capMax", "Cap"], ["room", "Cap room"], ["value", "GOOSE value"],
+  ["keep", "Keeper surplus"], ["lineupVal", "Lineup value"], ["lineupPts", "Lineup points"]];
+function leagueHTML() {
+  const F = FSTATE, L = F.league;
+  const id = (L?.id || "").replace(/\D/g, "");
+  const url = id ? `https://ottoneu.fangraphs.com/${id}/rosterexport?csv=1` : null;
+  let body = "";
+  if (L && L.players?.length) {
+    const teams = leagueTeams();
+    teams.forEach((t) => (t.room = t.capMax - t.used));
+    const hasCap = !!L.caps;
+    const [sk, sd] = L.sort || ["value", -1];
+    teams.sort((a, b) => sk === "team" ? sd * a.team.localeCompare(b.team) : sd * ((a[sk] ?? -1e9) - (b[sk] ?? -1e9)));
+    const open = teams.find((t) => t.team === L.open);
+    const unm = teams.reduce((a, t) => a + t.unmatched, 0);
+    body = `
+      <div class="mscroll"><table class="mini"><thead><tr>${LG_COLS.filter(([k]) => (k !== "lineupPts" || F.mode === "pts") && (hasCap || !["pen", "used", "capMax"].includes(k)) && (L.salaries || !["salary", "room", "keep"].includes(k))).map(([k, l]) =>
+        `<th${k === sk ? ` aria-sort="${sd > 0 ? "ascending" : "descending"}"` : ""}><button class="plink" type="button" data-lgsort="${k}">${l}${k === sk ? (sd > 0 ? " ▲" : " ▼") : ""}</button></th>`).join("")}</tr></thead>
+      <tbody>${teams.map((t) => `<tr data-lgteam="${t.team.replace(/"/g, "&quot;")}" tabindex="0" style="cursor:pointer" aria-selected="${t.team === L.open}">
+        <td>${t.team === L.my ? "★ " : ""}${t.team}</td><td>${t.n}</td>${L.salaries ? `<td>$${f0(t.salary)}</td>` : ""}${hasCap ? `<td>${t.pen ? "$" + f0(t.pen) : "–"}</td><td>$${f0(t.used)}</td><td title="${t.loans ? (t.loans > 0 ? "+" : "−") + "$" + Math.abs(t.loans) + " net loans" : ""}">$${f0(t.capMax)}</td>` : ""}${L.salaries ? `<td>${money(t.room)}</td>` : ""}<td>$${f0(t.value)}</td>${L.salaries ? `<td>$${f0(t.keep)}</td>` : ""}<td>$${f0(t.lineupVal)}</td>${F.mode === "pts" ? `<td>${f0(t.lineupPts)}</td>` : ""}</tr>`).join("")}</tbody></table></div>
+      <p class="note">GOOSE value sums each rostered player's value (negatives count as zero: you'd cut them). Keeper surplus sums value minus salary for players worth more than they cost. Lineup value${F.mode === "pts" ? " and points" : ""} use the best lineup from the roster${F.rate ? " under the games and innings caps" : ""}. ${hasCap ? "Cap used = salaries + cut penalties; cap = $400 plus loans in, minus loans out (from each team page)." : "Uploaded CSVs carry salaries only: cut penalties and loans aren't included."} Salaries are as exported (add Ottoneu's end-of-season raises if they haven't posted yet).${unm ? ` ${unm} rostered players have no GOOSE projection (mostly deep minor leaguers) and count as $0.` : ""}</p>
+      ${open ? `<h3>${open.team}</h3><div class="mscroll"><table class="mini"><thead><tr><th>Player</th><th>Pos</th><th>Salary</th><th>GOOSE $</th><th>Surplus</th><th>${F.rate ? "Lineup share" : "Starter"}</th></tr></thead><tbody>${
+        [...open.ps].sort((a, b) => b.val - a.val).map((p) => `<tr><td>${p.name}</td><td>${p.pos}</td><td>$${f0(p.salary)}</td><td>${p.o ? money(p.val) : "–"}</td>
+          <td style="color:${p.surplus >= 0 ? "var(--good)" : "var(--bad)"}">${p.o ? (p.surplus >= 0 ? "+" : "−") + "$" + Math.abs(p.surplus).toFixed(0) : "–"}</td><td>${F.rate ? pct(p.share, 0) : p.share ? "✓" : ""}</td></tr>`).join("")}</tbody></table></div>` : `<p class="note">Click a team to see its roster.</p>`}
+      <div class="frow"><label class="fld">My team<select id="fLgMine"><option value="">–</option>${teams.map((t) => t.team).sort().map((n) => `<option ${n === L.my ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <button class="btn" type="button" id="fLgKeep">Send rosters to the draft tracker as keepers</button>
+        <button class="btn" type="button" id="fLgClear">Remove league</button></div>`;
+  }
+  const pre = DATA.leagues || [];
+  return `<div class="panel"><h2>${L?.platform === "fantrax" ? "Fantrax" : "Ottoneu"} league${L?.name ? ` · ${L.name}` : ""}</h2>
+    ${L?.platform === "fantrax" && L.season && L.season < 2026 ? `<p class="note"><b>Note:</b> this league ID is for the ${L.season} season; rosters reflect that season. Fantrax gives each season its own league ID.</p>` : ""}
+    ${pre.length ? `<div class="frow"><label class="fld wide">Loaded leagues<select id="fLgPre"><option value="">Choose a league…</option>${pre.map((l) => `<option value="${l.id}" ${String(l.id) === String(L?.id) ? "selected" : ""}>${l.platform === "fantrax" ? "Fantrax" : "Ottoneu"}: ${l.name} (${l.scoring}, ${l.teams} teams)</option>`).join("")}</select></label></div>` : ""}
+    <p class="note">Fantrax leagues load by league ID at build time (the code in the league's URL). Any other Ottoneu league: enter its ID (the number in the league's URL), open the export link in your browser to download the rosters CSV, then drop the file here or paste its contents. The page itself can't fetch from Ottoneu, so leagues load either at build time or through your browser.${F.preset.startsWith("otto") ? "" : " <b>Tip:</b> pick an Ottoneu format above so values use Ottoneu scoring and the $400 cap."}</p>
+    <div class="frow"><label class="fld">League ID<input id="fLgId" type="text" inputmode="numeric" value="${id}" style="font:inherit;width:7em;padding:7px 8px;border:1px solid var(--rule);border-radius:7px;background:var(--surface);color:var(--ink)"></label>
+      ${url ? `<span class="note">Export: <a href="${url}" target="_blank" rel="noopener">${url}</a></span>` : ""}</div>
+    <div class="frow"><label class="fld">Rosters CSV file<input id="fLgFile" type="file" accept=".csv,text/csv,text/plain"></label></div>
+    <textarea class="paste" id="fLgPaste" placeholder="…or paste the CSV here (header line included)"></textarea>
+    <div class="frow"><button class="btn primary" type="button" id="fLgImport">Import pasted rosters</button><span class="note" id="fLgMsg">${L?.at ? `Rosters imported ${L.at}.` : ""}</span></div>
+    ${body}</div>`;
+}
+
+function summaryHTML() {
+  const F = FSTATE, R = F.roster, mine = FV.all.filter((o) => F.drafted[o.key]?.mine);
+  const mySpent = mine.reduce((a, o) => a + F.drafted[o.key].price, 0);
+  const myVal = mine.reduce((a, o) => a + o.val, 0);
+  const repl = (g, keys) => keys.filter((k) => FV.res[g].repl[k] != null && (k === "UTIL" || k === "P" || R[k] > 0 || g === "h")).map((k) =>
+    `<div class="kv"><span>${k}</span><b>${F.mode === "cats" ? FV.res[g].repl[k].toFixed(2) + " z" : F.rate ? FV.res[g].repl[k].toFixed(2) + (g === "h" ? " pts/G" : " pts/IP") : f0(FV.res[g].repl[k]) + " pts"}</b></div>`).join("");
+  return `
+  <div class="twocol">
+    <div class="panel"><h3>League economy</h3>
+      <div class="kv"><span>Hitter share of auction dollars</span><b>${pct(FV.hShare, 0)}${F.split === "auto" ? " (auto)" : ""}</b></div>
+      <div class="kv"><span>Dollars above minimum bids</span><b>$${f0(FV.D)}</b></div>
+      <div class="kv"><span>Drafted so far</span><b>${FV.nDr} players · $${f0(FV.spent)}</b></div>
+      <div class="kv"><span>Inflation on remaining players</span><b>${FV.nDr ? ((FV.infl - 1) * 100).toFixed(1) + "%" : "–"}</b></div>
+      <div class="kv"><span>My team</span><b>${mine.length} players · paid $${f0(mySpent)} for $${f0(myVal)} of value</b></div>
+      <h3 style="margin-top:6px">Replacement level by position</h3>${repl("h", ["C", "1B", "2B", "3B", "SS", "OF", "UTIL"])}${repl("p", ["SP", "RP", "P"])}
+    </div>
+    <div class="panel"><h3>Keepers and draft results</h3>
+      <p class="note">Paste one player per line as <b>Name, price</b>; add <b>, mine</b> for your own players. Keepers count the same as drafted players, so remaining values inflate (or deflate) automatically.</p>
+      <textarea class="paste" id="fPaste" placeholder="Bobby Witt Jr., 52, mine&#10;Tarik Skubal, 38"></textarea>
+      <div class="frow"><button class="btn primary" type="button" id="fImport">Add to tracker</button><button class="btn" type="button" id="fClear">Clear tracker</button>
+        <label class="toggle" style="padding:7px 10px"><input id="fHide" type="checkbox" ${F.hideDrafted ? "checked" : ""}> Hide drafted</label></div>
+      <p class="note" id="fImportMsg"></p>
+    </div>
+  </div>`;
+}
+
+function renderFantasy() {
+  // League tab: open the first preloaded league if none is loaded yet.
+  if (state.tab === "g" && !FSTATE.league?.players?.length && DATA.leagues?.length) loadPreloaded(DATA.leagues[0].id);
+  valuate();
+  if (state.tab === "g") {
+    $("fantasyView").innerHTML = `${leagueHTML()}
+      <details class="fdet panel" ${FSTATE.lgOpen ? "open" : ""}><summary id="fLgSet">Valuation settings (${PRESETS[FSTATE.preset]?.label ?? "Custom"}${FSTATE.custom ? ", edited" : ""} · ${FSTATE.roster.teams} teams)</summary>${settingsHTML()}</details>`;
+    return;
+  }
+  const F = FSTATE;
+  const rows = rowsFor();
+  if (!F.sel || !FV.all.some((o) => o.key === F.sel)) F.sel = rows[0]?.key ?? null;
+  const sel = FV.all.find((o) => o.key === F.sel);
+  $("fantasyView").innerHTML = `
+    ${settingsHTML()}
+    <div class="frow">
+      <label class="search" style="flex:1 1 240px"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+        <input id="fQ" type="search" placeholder="Search players or teams" autocomplete="off" aria-label="Search fantasy values" value="${F.q.replace(/"/g, "&quot;")}"></label>
+      <div class="seg" role="group" aria-label="Player group">${[["all", "All"], ["h", "Hitters"], ["p", "Pitchers"]].map(([k, l]) => `<button type="button" data-fshow="${k}" aria-pressed="${F.show === k}">${l}</button>`).join("")}</div>
+      <select id="fPos" aria-label="Position"><option value="">Any position</option>${["C", "1B", "2B", "3B", "SS", "OF", "UTIL", "SP", "RP"].map((p) => `<option ${F.pos === p ? "selected" : ""}>${p}</option>`).join("")}</select>
+    </div>
+    <div class="fmain">
+      <section class="tablebox"><div class="tablemeta"><span>${rows.length} players · ${PRESETS[F.preset]?.label ?? "Custom"}${F.custom ? " (edited)" : ""} · ${F.roster.teams} teams, $${F.roster.budget}</span><span>${F.adp !== "none" && DATA.adp ? `ADP: NFBC ${DATA.adp.label}. ` : ""}Click a row for the breakdown and draft tracker.</span></div>
+        <div id="ftable">${tableHTML(rows)}</div></section>
+      <aside class="detail" id="fdetail">${detailHTML(sel)}</aside>
+    </div>
+    ${summaryHTML()}`;
+}
+function refreshTable() {
+  applyRisk(); applyInflation();
+  const rows = rowsFor();
+  $("ftable").innerHTML = tableHTML(rows);
+  $("fdetail").innerHTML = detailHTML(FV.all.find((o) => o.key === FSTATE.sel));
+}
+function markCustom() { FSTATE.custom = true; }
+
+const FV_EL = $("fantasyView");
+FV_EL.addEventListener("change", (e) => {
+  const t = e.target, F = FSTATE, R = F.roster;
+  if (t.id === "fPreset") { if (t.value !== "custom") applyPreset(t.value); }
+  else if (t.id === "fMode") { F.mode = t.value; if (t.value === "pts" && !Object.keys(F.hw).length) { F.hw = { ...PRESETS.ottoFg.hw }; F.pw = { ...PRESETS.ottoFg.pw }; } markCustom(); }
+  else if (t.id === "fRate") { F.rate = t.value === "1"; markCustom(); }
+  else if (t.id === "fTeams") { R.teams = Math.max(2, Math.min(40, +t.value || 12)); markCustom(); }
+  else if (t.id === "fTeamsSel") { if (t.value === "custom") F.teamsCustom = true; else { F.teamsCustom = false; R.teams = +t.value; } markCustom(); }
+  else if (t.id === "fBudget") { R.budget = Math.max(1, +t.value || 260); markCustom(); }
+  else if (t.id === "fMin") { R.minBid = Math.max(0, +t.value); markCustom(); }
+  else if (t.id === "fSplit") { if (t.value === "auto") F.split = "auto"; else { F.split = "manual"; F.splitPct = +t.value; } }
+  else if (t.id === "fRisk") { F.risk = +t.value; fsave(); renderFantasy(); return; }
+  else if (t.id.startsWith("fs_")) { R[t.id.slice(3)] = Math.max(0, +t.value || 0); markCustom(); }
+  else if (t.id === "fRule") { if (t.value !== "custom") F.elig = { ...eligOf(t.value), both: F.elig.both }; else F.elig.rule = "custom"; markCustom(); }
+  else if (t.id === "fGThr") { F.elig.gThr = Math.max(1, +t.value || 1); F.elig.rule = "custom"; markCustom(); }
+  else if (t.id === "fGsThr") { F.elig.gsThr = Math.max(1, +t.value || 1); F.elig.rule = "custom"; markCustom(); }
+  else if (t.id === "fBoth") { F.elig.both = t.checked; markCustom(); }
+  else if (t.id === "fSpThr") { F.elig.spThr = Math.max(1, +t.value || 1); F.elig.rule = "custom"; markCustom(); }
+  else if (t.id === "fRpThr") { F.elig.rpThr = Math.max(1, +t.value || 1); F.elig.rule = "custom"; markCustom(); }
+  else if (t.id === "fOhtani") { F.ohtani = t.value; }
+  else if (t.id === "fWaivers") { R.waivers = t.value; if (t.value === "none" && R.benchP == null) R.benchP = 0.55; markCustom(); }
+  else if (t.id === "fBenchP") { R.benchP = Math.min(1, Math.max(0, (+t.value || 0) / 100)); markCustom(); }
+  else if (t.id === "fAdp") { F.adp = t.value; }
+  else if (t.dataset.cat) { const arr = t.dataset.cat === "p" ? F.pc : F.hc; if (t.checked) arr.push(t.value); else arr.splice(arr.indexOf(t.value), 1); if (!arr.length) arr.push(t.value); markCustom(); }
+  else if (t.dataset.pts) { (t.dataset.pts === "p" ? F.pw : F.hw)[t.dataset.k] = +t.value || 0; markCustom(); }
+  else if (t.id === "fPos") { F.pos = t.value; fsave(); refreshTable(); return; }
+  else if (t.id === "fHide") { F.hideDrafted = t.checked; fsave(); refreshTable(); return; }
+  else if (t.id === "fLgId") {
+    const v = t.value.trim();
+    if ((DATA.leagues || []).some((l) => String(l.id) === v)) { const msg = loadPreloaded(v); fsave(); renderFantasy(); $("fLgMsg").textContent = msg; return; }
+    F.league = { ...(F.league || { players: [] }), id: v };
+  }
+  else if (t.id === "fLgPre") { if (!t.value) return; const msg = loadPreloaded(t.value); fsave(); renderFantasy(); $("fLgMsg").textContent = msg; return; }
+  else if (t.id === "fLgMine") { F.league.my = t.value; }
+  else if (t.id === "fLgFile") {
+    const file = t.files && t.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => { const msg = importLeague(String(rd.result)); fsave(); renderFantasy(); $("fLgMsg").textContent = msg; };
+    rd.readAsText(file); return;
+  }
+  else return;
+  fsave(); renderFantasy();
+});
+FV_EL.addEventListener("input", (e) => { if (e.target.id === "fQ") { FSTATE.q = e.target.value; const rows = rowsFor(); if (rows.length && FSTATE.q.trim()) FSTATE.sel = rows[0].key; refreshTable(); } });
+FV_EL.addEventListener("click", (e) => {
+  const F = FSTATE;
+  const s = e.target.closest("button[data-fsort]");
+  if (s) { const k = s.dataset.fsort; F.sort = [k, F.sort[0] === k ? -F.sort[1] : (k === "name" ? 1 : -1)]; refreshTable(); return; }
+  const sh = e.target.closest("button[data-fshow]");
+  if (sh) { F.show = sh.dataset.fshow; if (F.sort[0].startsWith("c:")) F.sort = ["val", -1]; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fDraft") { F.drafted[F.sel] = { price: Math.max(0, +$("fPrice").value || 0), mine: $("fMine").checked }; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fUndraft") { delete F.drafted[F.sel]; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fClear") { F.drafted = {}; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fLgSet") { FSTATE.lgOpen = !e.target.parentElement.open; return; }
+  if (e.target.id === "fLgImport") { const msg = importLeague($("fLgPaste").value); fsave(); renderFantasy(); $("fLgMsg").textContent = msg; return; }
+  if (e.target.id === "fLgClear") { F.league = null; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fLgKeep") {
+    for (const t of leagueTeams()) for (const p of t.ps) if (p.o) F.drafted[p.o.key] = { price: p.salary, mine: t.team === F.league.my };
+    fsave(); renderFantasy(); return;
+  }
+  const lgs = e.target.closest("button[data-lgsort]");
+  if (lgs) { const k = lgs.dataset.lgsort, cur = F.league.sort || ["value", -1]; F.league.sort = [k, cur[0] === k ? -cur[1] : (k === "team" ? 1 : -1)]; fsave(); renderFantasy(); return; }
+  const lgt = e.target.closest("tr[data-lgteam]");
+  if (lgt) { F.league.open = F.league.open === lgt.dataset.lgteam ? null : lgt.dataset.lgteam; fsave(); renderFantasy(); return; }
+  if (e.target.id === "fImport") {
+    const miss = []; let n = 0;
+    for (const line of $("fPaste").value.split(/\n+/)) {
+      const parts = line.split(",").map((x) => x.trim()).filter(Boolean); if (!parts.length) continue;
+      const name = fold(parts[0]), price = Number((parts[1] || "").replace(/[$]/g, "")) || 0, mine = parts.slice(2).some((p) => /mine|me|my/i.test(p));
+      const hit = FV.all.filter((o) => fold(o.r.name) === name).sort((a, b) => b.val - a.val)[0];
+      if (hit) { F.drafted[hit.key] = { price, mine }; n++; } else miss.push(parts[0]);
+    }
+    fsave(); renderFantasy();
+    $("fImportMsg").textContent = `Added ${n}.${miss.length ? " Not found: " + miss.join(", ") + "." : ""}`;
+    return;
+  }
+  const tr = e.target.closest("tr[data-fkey]");
+  if (tr) { F.sel = tr.dataset.fkey; document.querySelectorAll("#fbody tr").forEach((x) => x.setAttribute("aria-selected", x.dataset.fkey === F.sel)); $("fdetail").innerHTML = detailHTML(FV.all.find((o) => o.key === F.sel)); }
+});
+FV_EL.addEventListener("keydown", (e) => {
+  const tr = e.target.closest("tr[data-fkey]"); if (!tr) return;
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tr.click(); }
+  if (e.key === "ArrowDown" && tr.nextElementSibling) { tr.nextElementSibling.focus(); e.preventDefault(); }
+  if (e.key === "ArrowUp" && tr.previousElementSibling) { tr.previousElementSibling.focus(); e.preventDefault(); }
+});
+render();
+</script>
